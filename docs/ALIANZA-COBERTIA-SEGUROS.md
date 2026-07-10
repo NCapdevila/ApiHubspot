@@ -4,10 +4,8 @@ Este documento es para que el equipo técnico de **Cobertia Seguros** integre su
 
 ## Base URL
 
-> ⚠️ **Pendiente de deploy.** Por ahora la API corre solo en ambiente local. Este documento se actualiza con la URL definitiva antes de compartirlo con Cobertia.
-
 ```
-https://<A DEFINIR>
+https://api.cebrokers.com.ar/hubspot
 ```
 
 ## Autenticación
@@ -44,7 +42,7 @@ Devuelve la cantidad de pólizas (deals) de Cobertia Seguros, agrupadas por etap
 
 ```bash
 curl -H "x-api-key: cbse_5a3fad6b6da6bc074c715692232863b2d04912869c6f24d8" \
-  "https://<A DEFINIR>/deals/stats/by-producer-agency?from=2026-01-01&to=2026-12-31"
+  "https://api.cebrokers.com.ar/hubspot/deals/stats/by-producer-agency?from=2026-01-01&to=2026-12-31"
 ```
 
 **Ejemplo de respuesta (200 OK)**
