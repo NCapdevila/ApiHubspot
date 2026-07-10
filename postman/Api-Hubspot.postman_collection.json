@@ -1,0 +1,78 @@
+{
+  "info": {
+    "name": "Api-Hubspot",
+    "description": "Bridge entre alianzas externas y HubSpot CRM. Usa las variables {{base_url}} y {{api_key}} definidas en el environment.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": ["{{base_url}}"],
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "Estado de un deal por ID",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{api_key}}" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/deals/:id/status",
+          "host": ["{{base_url}}"],
+          "path": ["deals", ":id", "status"],
+          "variable": [
+            { "key": "id", "value": "12345" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Deals por contacto (email)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{api_key}}" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/deals/by-contact?email=juan@mail.com",
+          "host": ["{{base_url}}"],
+          "path": ["deals", "by-contact"],
+          "query": [
+            { "key": "email", "value": "juan@mail.com" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Stats de deals por agencia (Cobertia Seguros)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{api_key}}" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/deals/stats/by-producer-agency?from=2026-01-01&to=2026-12-31&dateField=createdate",
+          "host": ["{{base_url}}"],
+          "path": ["deals", "stats", "by-producer-agency"],
+          "query": [
+            { "key": "from", "value": "2026-01-01" },
+            { "key": "to", "value": "2026-12-31" },
+            { "key": "dateField", "value": "createdate" }
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3001" },
+    { "key": "api_key", "value": "" }
+  ]
+}
