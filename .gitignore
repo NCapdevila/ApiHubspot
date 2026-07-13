@@ -1,3 +1,4 @@
 node_modules/
 .env
 postman/*.postman_environment.json
+postman/ALIANZA-COBERTIA-SEGUROS.postman_collection.json
