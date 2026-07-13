@@ -18,7 +18,7 @@
       }
     },
     {
-      "name": "Estado de un deal por ID",
+      "name": "Estado de un deal por ID (scope internal - 403 para alianzas)",
       "request": {
         "method": "GET",
         "header": [
@@ -35,7 +35,7 @@
       }
     },
     {
-      "name": "Deals por contacto (email)",
+      "name": "Deals por contacto (email) (scope internal - 403 para alianzas)",
       "request": {
         "method": "GET",
         "header": [
@@ -52,7 +52,7 @@
       }
     },
     {
-      "name": "Stats de deals por agencia (Cobertia Seguros)",
+      "name": "Stats de deals por agencia (scope stats)",
       "request": {
         "method": "GET",
         "header": [
@@ -62,6 +62,25 @@
           "raw": "{{base_url}}/deals/stats/by-producer-agency?from=2026-01-01&to=2026-12-31&dateField=createdate",
           "host": ["{{base_url}}"],
           "path": ["deals", "stats", "by-producer-agency"],
+          "query": [
+            { "key": "from", "value": "2026-01-01" },
+            { "key": "to", "value": "2026-12-31" },
+            { "key": "dateField", "value": "createdate" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Listado de deals por agencia con contacto (scope contacts)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{api_key}}" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/deals/by-producer-agency?from=2026-01-01&to=2026-12-31&dateField=createdate",
+          "host": ["{{base_url}}"],
+          "path": ["deals", "by-producer-agency"],
           "query": [
             { "key": "from", "value": "2026-01-01" },
             { "key": "to", "value": "2026-12-31" },

@@ -5,10 +5,15 @@ const CONTACT_PROPERTIES = 'email,firstname,lastname,phone';
 
 const PRODUCER_AGENCY_PROPERTY_LABEL = 'Productor/Agencia';
 const TARGET_STAGE_LABELS = ['En proceso', 'Emitida', 'No interesado'];
+const NO_INTERESADO_LABEL = 'No interesado';
+const COMMENTS_PROPERTY = 'comentarios';
 const META_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
 
+const CONTACT_LIST_PROPERTIES = ['email', 'firstname', 'lastname', 'phone'];
+const DEAL_LIST_PROPERTIES = ['dealstage', 'pipeline', 'createdate', 'closedate', COMMENTS_PROPERTY];
+
 let producerAgencyPropertyCache = null; // { name, expiresAt }
-let pipelineStageCache = null; // { pipelineId, stageIdToLabel, labelToStageId, missingLabels, expiresAt }
+let pipelineStageCache = null; // { pipelineId, stageIdToLabel, labelToStageId, allStageIdToLabel, missingLabels, expiresAt }
 
 async function getDealById(dealId) {
   const { data } = await hubspotClient.get(`/crm/v3/objects/deals/${dealId}`, {
@@ -66,8 +71,9 @@ async function resolveProducerAgencyPropertyName() {
   return match.name;
 }
 
-// Ubica, dentro del pipeline de deals, el pipeline que mejor matchea las 3 etapas
-// buscadas y arma el mapeo stageId <-> label.
+// Ubica, dentro de los pipelines de deals, el que mejor matchea las 3 etapas buscadas
+// y arma el mapeo stageId <-> label. También arma un mapa global (todos los pipelines)
+// para poder etiquetar cualquier deal, esté o no en ese pipeline.
 async function resolveTargetStageMap() {
   if (pipelineStageCache && pipelineStageCache.expiresAt > Date.now()) {
     return pipelineStageCache;
@@ -78,7 +84,12 @@ async function resolveTargetStageMap() {
 
   let bestPipeline = null;
   let bestMatchCount = 0;
+  const allStageIdToLabel = new Map();
+
   for (const pipeline of data.results) {
+    for (const stage of pipeline.stages) {
+      allStageIdToLabel.set(stage.id, stage.label);
+    }
     const matchCount = pipeline.stages.filter((s) =>
       wantedLabels.has(s.label.trim().toLowerCase())
     ).length;
@@ -106,34 +117,36 @@ async function resolveTargetStageMap() {
     pipelineId: bestPipeline.id,
     stageIdToLabel,
     labelToStageId,
+    allStageIdToLabel,
     missingLabels: TARGET_STAGE_LABELS.filter((l) => !labelToStageId.has(l)),
     expiresAt: Date.now() + META_CACHE_TTL_MS,
   };
   return pipelineStageCache;
 }
 
-async function searchContactIdsByProperty(propertyName, value) {
-  const ids = [];
+async function searchContactsByProperty(propertyName, value) {
+  const contacts = [];
   let after;
   const MAX_PAGES = 200; // tope de seguridad: 20.000 contactos
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const { data } = await hubspotClient.post('/crm/v3/objects/contacts/search', {
       filterGroups: [{ filters: [{ propertyName, operator: 'EQ', value }] }],
-      properties: ['email'],
+      properties: CONTACT_LIST_PROPERTIES,
       limit: 100,
       after,
     });
-    ids.push(...data.results.map((r) => r.id));
+    contacts.push(...data.results);
     after = data.paging?.next?.after;
     if (!after) break;
   }
 
-  return ids;
+  return contacts; // array de { id, properties }
 }
 
-async function getAssociatedDealIds(contactIds) {
-  const dealIds = new Set();
+// Mapea cada dealId al primer contactId asociado encontrado.
+async function getAssociatedDealsMap(contactIds) {
+  const dealToContactId = new Map();
   const BATCH_SIZE = 100;
 
   for (let i = 0; i < contactIds.length; i += BATCH_SIZE) {
@@ -142,13 +155,18 @@ async function getAssociatedDealIds(contactIds) {
       inputs: batch.map((id) => ({ id })),
     });
     for (const result of data.results) {
+      const contactId = result.from.id;
       for (const to of result.to || []) {
-        dealIds.add(to.toObjectId);
+        // toObjectId viene como number; los deals de /batch/read usan id como string.
+        const dealId = String(to.toObjectId);
+        if (!dealToContactId.has(dealId)) {
+          dealToContactId.set(dealId, contactId);
+        }
       }
     }
   }
 
-  return [...dealIds];
+  return dealToContactId;
 }
 
 async function getDealsByIdsBatch(dealIds, properties) {
@@ -167,35 +185,51 @@ async function getDealsByIdsBatch(dealIds, properties) {
   return deals;
 }
 
-// Cantidad de deals asociados a contactos cuya propiedad "Productor/Agencia" == agencyName,
-// agrupados por etapa ("En proceso" / "Emitida" / "No interesado") y filtrados por rango de fecha.
-async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 'createdate' } = {}) {
-  const propertyName = await resolveProducerAgencyPropertyName();
-  const stageMap = await resolveTargetStageMap();
-
-  const contactIds = await searchContactIdsByProperty(propertyName, agencyName);
-  const dealIds = contactIds.length ? await getAssociatedDealIds(contactIds) : [];
-  const deals = dealIds.length
-    ? await getDealsByIdsBatch(dealIds, ['dealname', 'dealstage', 'pipeline', 'amount', 'createdate', 'closedate'])
-    : [];
-
+function parseDateRange(from, to) {
   const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
   const fromTime = from ? new Date(from).getTime() : null;
   const toTime = to ? new Date(DATE_ONLY.test(to) ? `${to}T23:59:59.999Z` : to).getTime() : null;
+  return { fromTime, toTime };
+}
+
+// Obtiene, para una agencia, los contactos que la tienen como "Productor/Agencia"
+// y los deals asociados a ellos, ya filtrados por rango de fecha.
+async function getAgencyDeals(agencyName, { from, to, dateField }) {
+  const propertyName = await resolveProducerAgencyPropertyName();
+
+  const contacts = await searchContactsByProperty(propertyName, agencyName);
+  const contactsById = new Map(contacts.map((c) => [c.id, c.properties]));
+  const contactIds = [...contactsById.keys()];
+
+  const dealToContactId = contactIds.length ? await getAssociatedDealsMap(contactIds) : new Map();
+  const dealIds = [...dealToContactId.keys()];
+  const deals = dealIds.length ? await getDealsByIdsBatch(dealIds, DEAL_LIST_PROPERTIES) : [];
+
+  const { fromTime, toTime } = parseDateRange(from, to);
+
+  return deals
+    .filter((deal) => {
+      const dateValue = deal.properties[dateField];
+      if (!dateValue) return false;
+      const t = new Date(dateValue).getTime();
+      if (fromTime !== null && t < fromTime) return false;
+      if (toTime !== null && t > toTime) return false;
+      return true;
+    })
+    .map((deal) => ({ deal, contactProps: contactsById.get(dealToContactId.get(deal.id)) || {} }));
+}
+
+// Cantidad de deals asociados a contactos cuya propiedad "Productor/Agencia" == agencyName,
+// agrupados por etapa ("En proceso" / "Emitida" / "No interesado") y filtrados por rango de fecha.
+async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 'createdate' } = {}) {
+  const stageMap = await resolveTargetStageMap();
+  const agencyDeals = await getAgencyDeals(agencyName, { from, to, dateField });
 
   const byStage = {};
   for (const label of TARGET_STAGE_LABELS) byStage[label] = 0;
   let otrasEtapas = 0;
-  let totalDeals = 0;
 
-  for (const deal of deals) {
-    const dateValue = deal.properties[dateField];
-    if (!dateValue) continue;
-    const t = new Date(dateValue).getTime();
-    if (fromTime !== null && t < fromTime) continue;
-    if (toTime !== null && t > toTime) continue;
-
-    totalDeals++;
+  for (const { deal } of agencyDeals) {
     const stageLabel = stageMap.stageIdToLabel.get(deal.properties.dealstage);
     if (stageLabel) {
       byStage[stageLabel]++;
@@ -208,10 +242,46 @@ async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 
     agency: agencyName,
     dateField,
     range: { from: from || null, to: to || null },
-    totalDeals,
+    totalDeals: agencyDeals.length,
     byStage,
     otrasEtapas,
     ...(stageMap.missingLabels.length > 0 ? { etapasNoEncontradas: stageMap.missingLabels } : {}),
+  };
+}
+
+// Listado de deals de una agencia con los datos de contacto asociados.
+// Si la etapa es "No interesado", incluye el comentario cargado en el deal.
+async function getDealsListByProducerAgency(agencyName, { from, to, dateField = 'createdate' } = {}) {
+  const stageMap = await resolveTargetStageMap();
+  const agencyDeals = await getAgencyDeals(agencyName, { from, to, dateField });
+
+  const noInteresadoStageId = stageMap.labelToStageId.get(NO_INTERESADO_LABEL);
+
+  const deals = agencyDeals.map(({ deal, contactProps }) => {
+    const stageLabel = stageMap.allStageIdToLabel.get(deal.properties.dealstage) || deal.properties.dealstage;
+
+    const record = {
+      dealId: deal.id,
+      firstName: contactProps.firstname || null,
+      lastName: contactProps.lastname || null,
+      phone: contactProps.phone || null,
+      email: contactProps.email || null,
+      stage: stageLabel,
+    };
+
+    if (deal.properties.dealstage === noInteresadoStageId) {
+      record.comments = deal.properties[COMMENTS_PROPERTY] || null;
+    }
+
+    return record;
+  });
+
+  return {
+    agency: agencyName,
+    dateField,
+    range: { from: from || null, to: to || null },
+    total: deals.length,
+    deals,
   };
 }
 
@@ -221,4 +291,5 @@ module.exports = {
   getDealsByContactId,
   searchContactByEmail,
   getDealStatsByProducerAgency,
+  getDealsListByProducerAgency,
 };
