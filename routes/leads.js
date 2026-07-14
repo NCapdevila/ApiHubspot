@@ -32,7 +32,7 @@ router.post('/leads', auth, requireScope('leads'), async (req, res) => {
   try {
     const result = await hubspotService.createLead({
       agency: req.alianza.agency,
-      leadSource: req.alianza.name,
+      leadSource: "AlianzasExternas",
       contact,
       tipoRiesgo: deal.tipoRiesgo,
       details: deal.details,
