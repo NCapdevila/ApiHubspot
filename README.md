@@ -130,6 +130,22 @@ curl -H "x-api-key: <tu-api-key>" \
 
 `otrasEtapas` cuenta los deals de la agencia que están en cualquier otra etapa del pipeline (ej. "Nuevo", "Error", "Duplicado", "Vendida", "Baja").
 
+Si alguno de los deals de la agencia tiene cargada la propiedad `agencia` (sub-agencia, para alianzas multi-agencia como Lucy), la respuesta suma un campo `byAgencia` con el mismo desglose (`byStage` + `otrasEtapas` + `totalDeals`) para cada sub-agencia, como si cada una fuera una agencia independiente:
+
+```json
+{
+  "agency": "Lucy",
+  "totalDeals": 6,
+  "byStage": { "En proceso": 0, "Emitida": 0, "No interesado": 0 },
+  "otrasEtapas": 6,
+  "byAgencia": {
+    "Pepito": { "byStage": { "En proceso": 0, "Emitida": 0, "No interesado": 0 }, "otrasEtapas": 1, "totalDeals": 1 }
+  }
+}
+```
+
+Si ningún deal tiene `agencia` cargada (caso normal, ej. Cobertia), `byAgencia` no aparece en la respuesta.
+
 ### `GET /deals/by-producer-agency` (scope `contacts`)
 
 Listado (no agregado) de los deals de la agencia asociada a la API key, con los datos del contacto asociado a cada uno y su etapa. Mismos query params que el endpoint de stats (`from`, `to`, `dateField`). Si la etapa es **"No Interesado"**, cada registro incluye además el comentario cargado en el deal (propiedad `comentarios` de HubSpot).
@@ -169,7 +185,7 @@ curl -H "x-api-key: <tu-api-key>" \
 }
 ```
 
-El campo `comments` solo aparece cuando `stage` es `"No Interesado"`; en el resto de las etapas no se incluye.
+El campo `comments` solo aparece cuando `stage` es `"No Interesado"`; en el resto de las etapas no se incluye. El campo `agencia` solo aparece cuando el deal tiene esa propiedad cargada (sub-agencia, para alianzas multi-agencia como Lucy).
 
 ### `POST /leads` (scope `leads`)
 

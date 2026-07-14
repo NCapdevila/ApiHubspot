@@ -9,10 +9,11 @@ const TARGET_STAGE_LABELS = ['En proceso', 'Emitida', 'No interesado'];
 const NO_INTERESADO_LABEL = 'No interesado';
 const INITIAL_STAGE_LABEL = 'Nuevo';
 const COMMENTS_PROPERTY = 'comentarios';
+const SUB_AGENCY_PROPERTY = 'agencia';
 const META_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
 
 const CONTACT_LIST_PROPERTIES = ['email', 'firstname', 'lastname', 'phone'];
-const DEAL_LIST_PROPERTIES = ['dealstage', 'pipeline', 'createdate', 'closedate', COMMENTS_PROPERTY];
+const DEAL_LIST_PROPERTIES = ['dealstage', 'pipeline', 'createdate', 'closedate', COMMENTS_PROPERTY, SUB_AGENCY_PROPERTY];
 
 let producerAgencyPropertyCache = null; // { name, expiresAt }
 let pipelineStageCache = null; // { pipelineId, stageIdToLabel, labelToStageId, allStageIdToLabel, missingLabels, expiresAt }
@@ -241,8 +242,17 @@ async function getAgencyDeals(agencyName, { from, to, dateField }) {
     .map((deal) => ({ deal, contactProps: contactsById.get(dealToContactId.get(deal.id)) || {} }));
 }
 
+function emptyStageBucket() {
+  const byStage = {};
+  for (const label of TARGET_STAGE_LABELS) byStage[label] = 0;
+  return { byStage, otrasEtapas: 0, totalDeals: 0 };
+}
+
 // Cantidad de deals asociados a contactos cuya propiedad "Productor/Agencia" == agencyName,
 // agrupados por etapa ("En proceso" / "Emitida" / "No interesado") y filtrados por rango de fecha.
+// Si algún deal tiene cargada la propiedad "agencia" (sub-agencia, para alianzas multi-agencia
+// como Lucy), además se agrega "byAgencia" con el mismo desglose por cada sub-agencia,
+// como si cada una fuera una agencia independiente.
 async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 'createdate' } = {}) {
   const stageMap = await resolveTargetStageMap();
   const agencyDeals = await getAgencyDeals(agencyName, { from, to, dateField });
@@ -250,6 +260,7 @@ async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 
   const byStage = {};
   for (const label of TARGET_STAGE_LABELS) byStage[label] = 0;
   let otrasEtapas = 0;
+  const byAgencia = {};
 
   for (const { deal } of agencyDeals) {
     const stageLabel = stageMap.stageIdToLabel.get(deal.properties.dealstage);
@@ -257,6 +268,17 @@ async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 
       byStage[stageLabel]++;
     } else {
       otrasEtapas++;
+    }
+
+    const subAgencia = deal.properties[SUB_AGENCY_PROPERTY];
+    if (subAgencia) {
+      const bucket = (byAgencia[subAgencia] ??= emptyStageBucket());
+      bucket.totalDeals++;
+      if (stageLabel) {
+        bucket.byStage[stageLabel]++;
+      } else {
+        bucket.otrasEtapas++;
+      }
     }
   }
 
@@ -267,6 +289,7 @@ async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 
     totalDeals: agencyDeals.length,
     byStage,
     otrasEtapas,
+    ...(Object.keys(byAgencia).length > 0 ? { byAgencia } : {}),
     ...(stageMap.missingLabels.length > 0 ? { etapasNoEncontradas: stageMap.missingLabels } : {}),
   };
 }
@@ -290,6 +313,10 @@ async function getDealsListByProducerAgency(agencyName, { from, to, dateField = 
       email: contactProps.email || null,
       stage: stageLabel,
     };
+
+    if (deal.properties[SUB_AGENCY_PROPERTY]) {
+      record.agencia = deal.properties[SUB_AGENCY_PROPERTY];
+    }
 
     if (deal.properties.dealstage === noInteresadoStageId) {
       record.comments = deal.properties[COMMENTS_PROPERTY] || null;
