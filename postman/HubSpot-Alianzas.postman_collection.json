@@ -1,0 +1,151 @@
+{
+  "info": {
+    "name": "API Hubspot - Alianzas",
+    "description": "Colección genérica del bridge Hubspot <-> Alianzas. Cambiá la variable `api_key` según con qué alianza quieras probar (Cobertia = solo lectura, Lucy = lectura + alta de leads). `base_url` apunta a localhost por defecto; cambiala a la URL de producción si corresponde.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": ["{{base_url}}"],
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "Lectura (scopes stats / contacts)",
+      "item": [
+        {
+          "name": "Stats de deals por agencia",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/deals/stats/by-producer-agency?from=2026-01-01&to=2026-12-31&dateField=createdate",
+              "host": ["{{base_url}}"],
+              "path": ["deals", "stats", "by-producer-agency"],
+              "query": [
+                { "key": "from", "value": "2026-01-01" },
+                { "key": "to", "value": "2026-12-31" },
+                { "key": "dateField", "value": "createdate" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listado de deals por agencia (con contacto y etapa)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/deals/by-producer-agency?from=2026-01-01&to=2026-12-31&dateField=createdate",
+              "host": ["{{base_url}}"],
+              "path": ["deals", "by-producer-agency"],
+              "query": [
+                { "key": "from", "value": "2026-01-01" },
+                { "key": "to", "value": "2026-12-31" },
+                { "key": "dateField", "value": "createdate" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Alta de leads (scope leads)",
+      "item": [
+        {
+          "name": "Crear lead - AUTO (sin sub-agencia)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test2@mail.com\",\n    \"firstName\": \"Juan\",\n    \"lastName\": \"Perez\",\n    \"phone\": \"+5491122334455\",\n    \"whatsappPhone\": \"+5491122334455\",\n    \"dateOfBirth\": \"1996-01-01\",\n    \"country\": \"Argentina\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"AUTO\",\n    \"details\": {\n      \"patente\": \"ABC123\",\n      \"marca\": \"FIAT\",\n      \"modelo\": \"ARGO\",\n      \"version\": \"DRIVE 1.3 L/N\",\n      \"anio\": \"2016\",\n      \"numeroMotor\": \"123467889\",\n      \"numeroChasis\": \"1234567890\",\n      \"es0km\": false\n    }\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/leads",
+              "host": ["{{base_url}}"],
+              "path": ["leads"]
+            }
+          }
+        },
+        {
+          "name": "Crear lead - AUTO (con sub-agencia, alianzas multi-agencia como Lucy)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test3@mail.com\",\n    \"firstName\": \"Pepito\",\n    \"lastName\": \"Gomez\",\n    \"phone\": \"+5491122334456\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"AUTO\",\n    \"agencia\": \"Pepito\",\n    \"details\": {\n      \"patente\": \"XYZ789\",\n      \"marca\": \"FORD\",\n      \"modelo\": \"FIESTA\",\n      \"version\": \"S\",\n      \"anio\": \"2019\",\n      \"numeroMotor\": \"987654321\",\n      \"numeroChasis\": \"9876543210\",\n      \"es0km\": false\n    }\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/leads",
+              "host": ["{{base_url}}"],
+              "path": ["leads"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Interno (scope internal, no expuesto a alianzas)",
+      "item": [
+        {
+          "name": "Estado de un deal puntual",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/deals/{{deal_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["deals", "{{deal_id}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "Deals asociados a un contacto (por email)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/deals/by-contact?email={{contact_email}}",
+              "host": ["{{base_url}}"],
+              "path": ["deals", "by-contact"],
+              "query": [
+                { "key": "email", "value": "{{contact_email}}" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3001" },
+    { "key": "api_key", "value": "" },
+    { "key": "deal_id", "value": "12345" },
+    { "key": "contact_email", "value": "juan@mail.com" }
+  ]
+}

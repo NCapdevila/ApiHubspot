@@ -34,6 +34,7 @@ ALIANZAS_JSON={"<api-key>":{"name":"<nombre>","agency":"<valor exacto de Product
 | `stats`     | `GET /deals/stats/by-producer-agency`       |
 | `contacts`  | `GET /deals/by-producer-agency`             |
 | `internal`  | `GET /deals/:id/status`, `GET /deals/by-contact` (uso interno, no se otorga a alianzas externas) |
+| `leads`     | `POST /leads` (alta de leads para la agencia de la alianza) |
 
 Una key sin el scope correspondiente recibe `403` al intentar usar ese endpoint.
 
@@ -169,6 +170,69 @@ curl -H "x-api-key: <tu-api-key>" \
 ```
 
 El campo `comments` solo aparece cuando `stage` es `"No Interesado"`; en el resto de las etapas no se incluye.
+
+### `POST /leads` (scope `leads`)
+
+Crea (o actualiza, por email) un contacto y su deal asociado en HubSpot, siempre para la agencia de la alianza autenticada. La agencia (`productor_agencia`) y el origen del lead (`lead_source`) nunca se toman del body: siempre salen de la api-key usada, así ninguna alianza puede crear un lead a nombre de otra agencia.
+
+El deal se crea siempre en el mismo pipeline y en la etapa **"Nuevo"** (resuelta por label, no por ID hardcodeado), asociado al contacto.
+
+Los campos de `deal.details` dependen de `deal.tipoRiesgo`. Por ahora está soportado `AUTO`; para sumar otro tipo de riesgo hay que agregar su schema en `services/leadSchemas.js`.
+
+**Body**
+```json
+{
+  "contact": {
+    "email": "test2@mail.com",
+    "firstName": "Juan",
+    "lastName": "Perez",
+    "phone": "+5491122334455",
+    "whatsappPhone": "+5491122334455",
+    "dateOfBirth": "1996-01-01",
+    "country": "Argentina",
+    "state": "Buenos Aires",
+    "city": "La Plata",
+    "zip": "1900"
+  },
+  "deal": {
+    "tipoRiesgo": "AUTO",
+    "agencia": "Sub-Agencia Ejemplo",
+    "details": {
+      "patente": "ABC123",
+      "marca": "FIAT",
+      "modelo": "ARGO",
+      "version": "DRIVE 1.3 L/N",
+      "anio": "2016",
+      "numeroMotor": "123467889",
+      "numeroChasis": "1234567890",
+      "es0km": false
+    }
+  }
+}
+```
+
+`whatsappPhone`, `dateOfBirth`, `country`, `state`, `city` y `zip` son opcionales. Si falta `whatsappPhone`, se usa `phone`.
+
+`deal.agencia` es opcional y sirve para alianzas multi-agencia (ej. Lucy, que agrupa varias sub-agencias): identifica la sub-agencia puntual que originó el lead, sin reemplazar `productor_agencia` (que siempre es la alianza autenticada). Es un campo informativo — no afecta qué datos puede leer la alianza en los demás endpoints.
+
+Si se manda `deal.agencia`, el nombre del deal (`dealname`) la incluye entre la agencia y el tipo de riesgo: `"{productor_agencia} - {agencia} - {tipoRiesgo} - {email}"` (ej. `"Lucy - Pepito - AUTO - test2@mail.com"`). Si no se manda, queda como antes: `"{productor_agencia} - {tipoRiesgo} - {email}"`.
+
+**Ejemplo**
+```
+curl -X POST -H "x-api-key: <tu-api-key>" -H "Content-Type: application/json" \
+  -d '{ "contact": {...}, "deal": {...} }' \
+  "http://localhost:3001/leads"
+```
+
+**Respuesta (201)**
+```json
+{
+  "contact": { "id": "701", "email": "test2@mail.com", "firstName": "Juan", "lastName": "Perez" },
+  "deal": { "id": "62501234567", "name": "Fortecar 9 de julio - AUTO - test2@mail.com", "stage": "Nuevo", "pipeline": "886201234" }
+}
+```
+
+Si falta algún campo requerido o `tipoRiesgo` no está soportado, responde `400` con el detalle de los errores en `details`.
 
 ## Notas de seguridad
 

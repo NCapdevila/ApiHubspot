@@ -1,4 +1,5 @@
 const hubspotClient = require('../config/hubspot');
+const { getDealSchema } = require('./leadSchemas');
 
 const DEAL_PROPERTIES = 'dealname,dealstage,amount,pipeline,closedate,createdate';
 const CONTACT_PROPERTIES = 'email,firstname,lastname,phone';
@@ -6,6 +7,7 @@ const CONTACT_PROPERTIES = 'email,firstname,lastname,phone';
 const PRODUCER_AGENCY_PROPERTY_LABEL = 'Productor/Agencia';
 const TARGET_STAGE_LABELS = ['En proceso', 'Emitida', 'No interesado'];
 const NO_INTERESADO_LABEL = 'No interesado';
+const INITIAL_STAGE_LABEL = 'Nuevo';
 const COMMENTS_PROPERTY = 'comentarios';
 const META_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
 
@@ -113,15 +115,35 @@ async function resolveTargetStageMap() {
     }
   }
 
+  // Mapeo label -> id de TODAS las etapas del pipeline elegido (no solo las 3 de reporting).
+  // Sirve para resolver, por ejemplo, la etapa "Nuevo" al crear un lead, sin hardcodear su ID.
+  const pipelineLabelToStageId = new Map(
+    bestPipeline.stages.map((s) => [s.label.trim().toLowerCase(), s.id])
+  );
+
   pipelineStageCache = {
     pipelineId: bestPipeline.id,
     stageIdToLabel,
     labelToStageId,
     allStageIdToLabel,
+    pipelineLabelToStageId,
     missingLabels: TARGET_STAGE_LABELS.filter((l) => !labelToStageId.has(l)),
     expiresAt: Date.now() + META_CACHE_TTL_MS,
   };
   return pipelineStageCache;
+}
+
+// Resuelve el pipeline y la etapa inicial ("Nuevo") para crear leads nuevos.
+// Es la misma para todas las alianzas: se resuelve por label, no por ID hardcodeado.
+async function resolveInitialStage() {
+  const stageMap = await resolveTargetStageMap();
+  const stageId = stageMap.pipelineLabelToStageId.get(INITIAL_STAGE_LABEL.toLowerCase());
+
+  if (!stageId) {
+    throw new Error(`No se encontró la etapa inicial "${INITIAL_STAGE_LABEL}" en el pipeline`);
+  }
+
+  return { pipelineId: stageMap.pipelineId, stageId };
 }
 
 async function searchContactsByProperty(propertyName, value) {
@@ -285,6 +307,85 @@ async function getDealsListByProducerAgency(agencyName, { from, to, dateField = 
   };
 }
 
+async function upsertContactByEmail(properties) {
+  const { data } = await hubspotClient.post('/crm/v3/objects/contacts/batch/upsert', {
+    inputs: [{ id: properties.email, idProperty: 'email', properties }],
+  });
+  return data.results[0]; // { id, properties, ... }
+}
+
+async function createDealForContact(properties, contactId) {
+  const { data } = await hubspotClient.post('/crm/v3/objects/deals', {
+    properties,
+    associations: [
+      {
+        to: { id: contactId },
+        types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 3 }], // deal <-> contact
+      },
+    ],
+  });
+  return data;
+}
+
+// Crea (o actualiza, por email) el contacto y el deal asociado para una alianza.
+// "agency" y "leadSource" siempre vienen del server (de la alianza autenticada),
+// nunca del body que manda el cliente: así ninguna alianza puede crear un lead
+// a nombre de otra agencia ni falsear su origen.
+async function createLead({ agency, leadSource, contact, tipoRiesgo, details, agencia }) {
+  const schema = getDealSchema(tipoRiesgo);
+  if (!schema) {
+    throw new Error(`tipoRiesgo "${tipoRiesgo}" no soportado`);
+  }
+
+  const contactProperties = {
+    email: contact.email,
+    firstname: contact.firstName,
+    lastname: contact.lastName,
+    phone: contact.phone,
+    hs_whatsapp_phone_number: contact.whatsappPhone || contact.phone,
+    ...(contact.country ? { country: contact.country } : {}),
+    ...(contact.state ? { state: contact.state } : {}),
+    ...(contact.city ? { city: contact.city } : {}),
+    ...(contact.zip ? { zip: contact.zip } : {}),
+    ...(contact.dateOfBirth
+      ? { date_of_birth: String(new Date(contact.dateOfBirth).getTime()) }
+      : {}),
+    productor_agencia: agency,
+    lead_source: leadSource,
+    lifecyclestage: 'lead',
+  };
+
+  const upsertedContact = await upsertContactByEmail(contactProperties);
+  const { pipelineId, stageId } = await resolveInitialStage();
+
+  const dealNameParts = [agency, agencia, tipoRiesgo, contact.email].filter(Boolean);
+
+  const dealProperties = {
+    dealname: dealNameParts.join(' - '),
+    pipeline: pipelineId,
+    dealstage: stageId,
+    ...(agencia ? { agencia } : {}),
+    ...schema.toHubspotProperties(details || {}),
+  };
+
+  const createdDeal = await createDealForContact(dealProperties, upsertedContact.id);
+
+  return {
+    contact: {
+      id: upsertedContact.id,
+      email: contact.email,
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+    },
+    deal: {
+      id: createdDeal.id,
+      name: dealProperties.dealname,
+      stage: INITIAL_STAGE_LABEL,
+      pipeline: pipelineId,
+    },
+  };
+}
+
 module.exports = {
   getDealById,
   getContactById,
@@ -292,4 +393,5 @@ module.exports = {
   searchContactByEmail,
   getDealStatsByProducerAgency,
   getDealsListByProducerAgency,
+  createLead,
 };
