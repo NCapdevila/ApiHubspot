@@ -250,6 +250,22 @@ curl -X POST -H "x-api-key: <tu-api-key>" -H "Content-Type: application/json" \
 
 Si falta algún campo requerido o `tipoRiesgo` no está soportado, responde `400` con el detalle de los errores en `details`.
 
+## Logs
+
+Todas las requests (incluido `/health`) quedan registradas en `logs/access.log`, una línea JSON por request:
+
+```json
+{"timestamp":"2026-07-17T18:32:10.123Z","method":"POST","path":"/leads","status":201,"durationMs":842,"agency":"Lucy","alianza":"Lucy"}
+```
+
+`agency`/`alianza` quedan en `null` si la request no pasó por `authMiddleware` (ej. `/health`) o si la api-key era inválida. Para filtrar por agencia:
+
+```bash
+grep '"agency":"Lucy"' logs/access.log
+```
+
+`logs/` no se versiona (está en `.gitignore`).
+
 ## Notas de seguridad
 
 - `.env` está en `.gitignore` y nunca debe commitearse.

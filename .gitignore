@@ -1,5 +1,6 @@
 node_modules/
 .env
+logs/
 postman/*.postman_environment.json
 postman/ALIANZA-COBERTIA-SEGUROS.postman_collection.json
 postman/ALIANZA-LUCY.postman_collection.json
