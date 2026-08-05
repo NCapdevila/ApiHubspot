@@ -385,7 +385,11 @@ async function createLead({ agency, leadSource, contact, tipoRiesgo, details, ag
   const upsertedContact = await upsertContactByEmail(contactProperties);
   const { pipelineId, stageId } = await resolveInitialStage();
 
-  const dealNameParts = [agency, agencia, tipoRiesgo, contact.email].filter(Boolean);
+  // Nombre del deal: alianza - sub-agencia - tipo de riesgo - patente - email.
+  // La sub-agencia y la patente son opcionales; la patente sólo aplica a AUTO.
+  const patente = tipoRiesgo === 'AUTO' ? (details || {}).patente : null;
+
+  const dealNameParts = [agency, agencia, tipoRiesgo, patente, contact.email].filter(Boolean);
 
   const dealProperties = {
     dealname: dealNameParts.join(' - '),

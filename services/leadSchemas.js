@@ -8,7 +8,6 @@
 const DEAL_SCHEMAS = {
   AUTO: {
     requiredFields: [
-      'patente',
       'marca',
       'modelo',
       'version',
@@ -17,9 +16,11 @@ const DEAL_SCHEMAS = {
       'numeroChasis',
       'es0km',
     ],
+    // "patente" y "esPrendado" son opcionales: si no vienen, no mandamos la
+    // propiedad a HubSpot (queda vacía) en vez de guardar un valor inventado.
     toHubspotProperties: (details) => ({
       tipo_riesgo: 'AUTO',
-      patente_vehiculo: details.patente,
+      ...(details.patente ? { patente_vehiculo: details.patente } : {}),
       marca_vehiculo: details.marca,
       modelo_vehiculo: details.modelo,
       version_vehiculo: details.version,
@@ -27,6 +28,9 @@ const DEAL_SCHEMAS = {
       numero_motor: details.numeroMotor,
       numero_chasis: details.numeroChasis,
       es_0km: !!details.es0km,
+      ...(details.esPrendado === undefined || details.esPrendado === null
+        ? {}
+        : { es_prendado: !!details.esPrendado }),
     }),
   },
 
