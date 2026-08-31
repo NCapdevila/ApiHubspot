@@ -11,10 +11,14 @@ const { validateLeadPayload } = require('../utils/leadValidation');
 //
 // Body esperado:
 // {
-//   "contact": { "email", "phone", "firstName"?, "lastName"?, "companyName"?, "whatsappPhone"?,
-//                "dateOfBirth"?, "country"?, "state"?, "city"?, "zip"? },
-//   "deal": { "tipoRiesgo": "AUTO", "agencia"?, "details": { ...campos según tipoRiesgo... } }
+//   "contact": { "email", "phone", "firstName"?, "lastName"?, "companyName"?, "dni"?,
+//                "whatsappPhone"?, "dateOfBirth"?, "country"?, "state"?, "city"?, "zip"? },
+//   "deal": { "tipoRiesgo": "AUTO"|"HOGAR", "agencia"?, "emitida"?,
+//             "details": { ...campos según tipoRiesgo... } }
 // }
+// "emitida" (opcional, default false) elige la variante de alta: sin ella el lead
+// entra como oportunidad nueva (etapa "Nuevo" del pipeline de ventas); con
+// "emitida": true entra directo al pipeline de pólizas ya emitidas.
 // "email" y "phone" son siempre obligatorios. "companyName" es la alternativa a
 // firstName + lastName: si viene, el cliente es una empresa y se crea como Company
 // en HubSpot (buscada por nombre + agencia) en vez de como Contact; firstName y
@@ -43,6 +47,7 @@ router.post('/leads', auth, requireScope('leads'), async (req, res) => {
       tipoRiesgo: deal.tipoRiesgo,
       details: deal.details,
       agencia: deal.agencia,
+      emitida: deal.emitida === true,
     });
     res.status(201).json(result);
   } catch (err) {

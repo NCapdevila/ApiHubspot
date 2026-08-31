@@ -1,0 +1,1090 @@
+{
+  "info": {
+    "name": "Api-Hubspot",
+    "description": "Puente entre alianzas externas y HubSpot CRM.\n\n## Antes de correr\n1. Setear `baseUrl` (default http://localhost:3001).\n2. Setear `apiKey` con la key de la alianza a probar. Necesita scope `leads` para POST /leads y `stats`/`contacts` para los GET de reporting.\n3. `apiKeyInternal` solo si tenes una key con scope `internal`.\n\n## OJO\nLos POST /leads **crean registros reales en el HubSpot de produccion** (contactos, empresas y deals). Los emails de prueba son estables, asi que reejecutar actualiza el mismo contacto/empresa pero **crea un deal nuevo cada vez**.\n\nLas keys no se guardan en este archivo: son variables de coleccion vacias.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001"
+    },
+    {
+      "key": "apiKey",
+      "value": ""
+    },
+    {
+      "key": "apiKeyInternal",
+      "value": ""
+    },
+    {
+      "key": "dealId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ],
+              "query": []
+            },
+            "description": "Sin auth."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. POST /leads - altas OK (crean datos reales)",
+      "item": [
+        {
+          "name": "AUTO - persona",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test.persona@apitest.com\",\n    \"firstName\": \"Juan\",\n    \"lastName\": \"Perez\",\n    \"dni\": \"30123456\",\n    \"phone\": \"+541155550001\",\n    \"whatsappPhone\": \"+541155550001\",\n    \"country\": \"Argentina\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"AUTO\",\n    \"details\": {\n      \"marca\": \"Ford\",\n      \"modelo\": \"Focus\",\n      \"version\": \"SE 1.6\",\n      \"anio\": \"2020\",\n      \"numeroMotor\": \"MOT123456\",\n      \"numeroChasis\": \"CHA987654\",\n      \"es0km\": false,\n      \"patente\": \"AB123CD\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Flujo historico. Upsert de Contact por email + deal en etapa \"Nuevo\"."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('devuelve deal.id', () => pm.expect(b.deal.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('dealId', b.deal.id);",
+                  "pm.test('stage Nuevo', () => pm.expect(b.deal.stage).to.eql('Nuevo'));",
+                  "pm.test('devuelve contact, no company', () => { pm.expect(b.contact).to.be.an('object'); pm.expect(b.company).to.be.undefined; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTO - persona con sub-agencia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test.persona.subagencia@apitest.com\",\n    \"firstName\": \"Juan\",\n    \"lastName\": \"Perez\",\n    \"dni\": \"30123456\",\n    \"phone\": \"+541155550001\",\n    \"whatsappPhone\": \"+541155550001\",\n    \"country\": \"Argentina\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"AUTO\",\n    \"agencia\": \"SubAgencia Test\",\n    \"details\": {\n      \"marca\": \"Ford\",\n      \"modelo\": \"Focus\",\n      \"version\": \"SE 1.6\",\n      \"anio\": \"2020\",\n      \"numeroMotor\": \"MOT123456\",\n      \"numeroChasis\": \"CHA987654\",\n      \"es0km\": false,\n      \"patente\": \"AB123CD\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "deal.agencia identifica la sub-agencia dentro de una alianza multi-agencia. No reemplaza la agencia de la api-key."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('devuelve deal.id', () => pm.expect(b.deal.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('dealId', b.deal.id);",
+                  "pm.test('dealname incluye la sub-agencia', () => pm.expect(b.deal.name).to.include('SubAgencia Test'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "HOGAR - persona (lead nuevo)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test.hogar@apitest.com\",\n    \"firstName\": \"Ana\",\n    \"lastName\": \"Gomez\",\n    \"dni\": \"32987654\",\n    \"phone\": \"+541155550002\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"details\": {\n      \"tipoHogar\": \"Casa\",\n      \"ambientes\": 3,\n      \"amount\": \"150000\",\n      \"comentarios\": \"Alta de prueba\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Riesgo HOGAR, variante por defecto: pipeline de ventas, etapa \"Nuevo\"."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('devuelve deal.id', () => pm.expect(b.deal.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('dealId', b.deal.id);",
+                  "pm.test('stage Nuevo', () => pm.expect(b.deal.stage).to.eql('Nuevo'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "HOGAR - persona (YA EMITIDA)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test.hogar.emitida@apitest.com\",\n    \"firstName\": \"Ana\",\n    \"lastName\": \"Gomez\",\n    \"dni\": \"32987654\",\n    \"phone\": \"+541155550002\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"emitida\": true,\n    \"details\": {\n      \"tipoHogar\": \"Casa\",\n      \"ambientes\": 3,\n      \"amount\": \"150000\",\n      \"comentarios\": \"Alta de prueba\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "emitida:true -> pipeline CE BROKERS - CLIENTES (907998512), etapa \"Cliente\" (1377519216)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('devuelve deal.id', () => pm.expect(b.deal.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('dealId', b.deal.id);",
+                  "pm.test('stage Cliente', () => pm.expect(b.deal.stage).to.eql('Cliente'));",
+                  "pm.test('pipeline de clientes', () => pm.expect(b.deal.pipeline).to.eql('907998512'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "HOGAR - persona con alias snake_case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test.hogar.snake@apitest.com\",\n    \"firstName\": \"Ana\",\n    \"lastName\": \"Gomez\",\n    \"dni\": \"32987654\",\n    \"phone\": \"+541155550002\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"details\": {\n      \"tipo_hogar\": \"Departamento\",\n      \"ambientes_hogar\": 2,\n      \"amount\": 90000,\n      \"comments\": \"via alias\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El form de la alianza nueva manda los nombres internos de HubSpot. Se aceptan como alias de tipoHogar/ambientes/comentarios."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('devuelve deal.id', () => pm.expect(b.deal.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('dealId', b.deal.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "HOGAR - EMPRESA (ya emitida)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"contacto@testsrl.com\",\n    \"companyName\": \"Test SRL\",\n    \"phone\": \"+541155550003\",\n    \"country\": \"Argentina\",\n    \"state\": \"Santa Fe\",\n    \"city\": \"Rosario\",\n    \"zip\": \"2000\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"emitida\": true,\n    \"details\": {\n      \"tipoHogar\": \"Casa\",\n      \"ambientes\": 3,\n      \"amount\": \"150000\",\n      \"comentarios\": \"Alta de prueba\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "contact.companyName en vez de firstName/lastName: se crea/actualiza una Company y el deal se asocia a ella. La respuesta trae \"company\" en vez de \"contact\"."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('devuelve deal.id', () => pm.expect(b.deal.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('dealId', b.deal.id);",
+                  "pm.test('devuelve company, no contact', () => { pm.expect(b.company).to.be.an('object'); pm.expect(b.contact).to.be.undefined; });",
+                  "pm.test('company con nombre', () => pm.expect(b.company.name).to.eql('Test SRL'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTO - EMPRESA",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"contacto@testsrl.com\",\n    \"companyName\": \"Test SRL\",\n    \"phone\": \"+541155550003\",\n    \"country\": \"Argentina\",\n    \"state\": \"Santa Fe\",\n    \"city\": \"Rosario\",\n    \"zip\": \"2000\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"AUTO\",\n    \"details\": {\n      \"marca\": \"Ford\",\n      \"modelo\": \"Focus\",\n      \"version\": \"SE 1.6\",\n      \"anio\": \"2020\",\n      \"numeroMotor\": \"MOT123456\",\n      \"numeroChasis\": \"CHA987654\",\n      \"es0km\": false,\n      \"patente\": \"AB123CD\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Mismo cliente empresa, otro riesgo. La segunda vez que corras esto la Company se actualiza (PATCH), no se duplica."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('devuelve deal.id', () => pm.expect(b.deal.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('dealId', b.deal.id);",
+                  "pm.test('company', () => pm.expect(b.company.id).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. POST /leads - validaciones (esperan 400)",
+      "item": [
+        {
+          "name": "sin firstName/lastName y sin companyName",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"x@apitest.com\",\n    \"phone\": \"+5411\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"details\": {\n      \"tipoHogar\": \"Casa\",\n      \"ambientes\": 3,\n      \"amount\": \"150000\",\n      \"comentarios\": \"Alta de prueba\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "firstName y lastName solo son obligatorios cuando NO viene companyName."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const b = pm.response.json();",
+                  "pm.test('detalla el error', () => pm.expect(JSON.stringify(b.details)).to.include(\"contact.firstName\"));",
+                  "console.log(b.details);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "empresa sin email ni phone",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"companyName\": \"Test SRL\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"details\": {\n      \"tipoHogar\": \"Casa\",\n      \"ambientes\": 3,\n      \"amount\": \"150000\",\n      \"comentarios\": \"Alta de prueba\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "email y phone son obligatorios siempre, tambien para empresas."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const b = pm.response.json();",
+                  "pm.test('detalla el error', () => pm.expect(JSON.stringify(b.details)).to.include(\"contact.email\"));",
+                  "console.log(b.details);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "companyName vacio",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"x@apitest.com\",\n    \"phone\": \"+5411\",\n    \"companyName\": \"   \"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"details\": {\n      \"tipoHogar\": \"Casa\",\n      \"ambientes\": 3,\n      \"amount\": \"150000\",\n      \"comentarios\": \"Alta de prueba\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Si viene companyName tiene que ser un string no vacio."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const b = pm.response.json();",
+                  "pm.test('detalla el error', () => pm.expect(JSON.stringify(b.details)).to.include(\"companyName\"));",
+                  "console.log(b.details);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "HOGAR sin tipoHogar ni ambientes",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test.hogar@apitest.com\",\n    \"firstName\": \"Ana\",\n    \"lastName\": \"Gomez\",\n    \"dni\": \"32987654\",\n    \"phone\": \"+541155550002\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"details\": {\n      \"amount\": \"1000\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Campos obligatorios del riesgo HOGAR."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const b = pm.response.json();",
+                  "pm.test('detalla el error', () => pm.expect(JSON.stringify(b.details)).to.include(\"tipoHogar\"));",
+                  "console.log(b.details);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "amount ambiguo (150.000)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test.hogar@apitest.com\",\n    \"firstName\": \"Ana\",\n    \"lastName\": \"Gomez\",\n    \"dni\": \"32987654\",\n    \"phone\": \"+541155550002\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"details\": {\n      \"tipoHogar\": \"Casa\",\n      \"ambientes\": 3,\n      \"amount\": \"150.000\",\n      \"comentarios\": \"Alta de prueba\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Se rechaza en vez de arriesgar un monto mal cargado: \"150.000\" puede ser 150000 o 150."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const b = pm.response.json();",
+                  "pm.test('detalla el error', () => pm.expect(JSON.stringify(b.details)).to.include(\"amount\"));",
+                  "console.log(b.details);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "emitida no booleano",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test.hogar@apitest.com\",\n    \"firstName\": \"Ana\",\n    \"lastName\": \"Gomez\",\n    \"dni\": \"32987654\",\n    \"phone\": \"+541155550002\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"emitida\": \"si\",\n    \"details\": {\n      \"tipoHogar\": \"Casa\",\n      \"ambientes\": 3,\n      \"amount\": \"150000\",\n      \"comentarios\": \"Alta de prueba\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "deal.emitida tiene que ser true o false."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const b = pm.response.json();",
+                  "pm.test('detalla el error', () => pm.expect(JSON.stringify(b.details)).to.include(\"emitida\"));",
+                  "console.log(b.details);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "tipoRiesgo no soportado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/leads",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "leads"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": {\n    \"email\": \"test.hogar@apitest.com\",\n    \"firstName\": \"Ana\",\n    \"lastName\": \"Gomez\",\n    \"dni\": \"32987654\",\n    \"phone\": \"+541155550002\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"VIDA\",\n    \"details\": {}\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El error lista los tipos validos."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const b = pm.response.json();",
+                  "pm.test('detalla el error', () => pm.expect(JSON.stringify(b.details)).to.include(\"no soportado\"));",
+                  "console.log(b.details);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. GET reporting por agencia",
+      "item": [
+        {
+          "name": "GET /deals/stats/by-producer-agency",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/deals/stats/by-producer-agency?from=2026-01-01&to=2026-12-31&dateField=createdate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "stats",
+                "by-producer-agency"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "key": "to",
+                  "value": "2026-12-31"
+                },
+                {
+                  "key": "dateField",
+                  "value": "createdate"
+                }
+              ]
+            },
+            "description": "Scope \"stats\". Cuenta deals por etapa. Incluye los de clientes empresa."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('trae byStage', () => pm.expect(b.byStage).to.be.an('object'));",
+                  "console.log('totalDeals:', b.totalDeals, '| byStage:', b.byStage);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /deals/by-producer-agency",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/deals/by-producer-agency?from=2026-01-01&to=2026-12-31&dateField=createdate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "by-producer-agency"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "key": "to",
+                  "value": "2026-12-31"
+                },
+                {
+                  "key": "dateField",
+                  "value": "createdate"
+                }
+              ]
+            },
+            "description": "Scope \"contacts\". Cada registro trae type: \"person\" (firstName/lastName) o \"company\" (companyName)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('cada deal tiene type valido', () => b.deals.forEach(d => pm.expect(d.type).to.be.oneOf(['person','company'])));",
+                  "pm.test('empresa trae companyName y no firstName', () => b.deals.filter(d => d.type === 'company').forEach(d => { pm.expect(d).to.have.property('companyName'); pm.expect(d).to.not.have.property('firstName'); }));",
+                  "const emp = b.deals.filter(d => d.type === 'company');",
+                  "console.log('total:', b.total, '| empresas:', emp.length);",
+                  "console.log(JSON.stringify(emp.slice(0,5), null, 2));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /deals/by-producer-agency - agencia ajena (espera 403)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/deals/by-producer-agency?agency=OtraAgencia",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "by-producer-agency"
+              ],
+              "query": [
+                {
+                  "key": "agency",
+                  "value": "OtraAgencia"
+                }
+              ]
+            },
+            "description": "Una key no puede consultar otra agencia, aunque la mande por parametro."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. GET internos (scope \"internal\")",
+      "item": [
+        {
+          "name": "GET /deals/:id/status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKeyInternal}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/deals/{{dealId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "{{dealId}}",
+                "status"
+              ],
+              "query": []
+            },
+            "description": "Usa el dealId que guardo el ultimo POST /leads exitoso. Requiere scope \"internal\": con una key de alianza devuelve 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 o 403 segun el scope de la key', () => pm.expect(pm.response.code).to.be.oneOf([200, 401, 403]));",
+                  "console.log(pm.response.text());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /deals/by-contact",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{apiKeyInternal}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/deals/by-contact?email=test.hogar@apitest.com",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "by-contact"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "test.hogar@apitest.com"
+                }
+              ]
+            },
+            "description": "Deals de un contacto por email. Requiere scope \"internal\"."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 o 403 segun el scope de la key', () => pm.expect(pm.response.code).to.be.oneOf([200, 401, 403, 404]));",
+                  "console.log(pm.response.text());"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Auth",
+      "item": [
+        {
+          "name": "sin api-key (espera 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/deals/by-producer-agency",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "by-producer-agency"
+              ],
+              "query": []
+            },
+            "description": "Todos los endpoints salvo /health requieren x-api-key."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "api-key invalida (espera 401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "no-existe-esta-key"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/deals/by-producer-agency",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "deals",
+                "by-producer-agency"
+              ],
+              "query": []
+            },
+            "description": "Key que no existe en ALIANZAS_JSON."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

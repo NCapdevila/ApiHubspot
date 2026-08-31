@@ -1,5 +1,5 @@
 const hubspotClient = require('../config/hubspot');
-const { getDealSchema } = require('./leadSchemas');
+const { getDealSchema, normalizeDealDetails } = require('./leadSchemas');
 
 const DEAL_PROPERTIES = 'dealname,dealstage,amount,pipeline,closedate,createdate';
 const CONTACT_PROPERTIES = 'email,firstname,lastname,phone';
@@ -8,6 +8,13 @@ const PRODUCER_AGENCY_PROPERTY_LABEL = 'Productor/Agencia';
 const TARGET_STAGE_LABELS = ['En proceso', 'Emitida', 'No interesado'];
 const NO_INTERESADO_LABEL = 'No interesado';
 const INITIAL_STAGE_LABEL = 'Nuevo';
+
+// Variante "ya emitida": el lead no entra como oportunidad nueva sino directo al
+// pipeline de clientes, en una etapa concreta. Acá sí se usan IDs y no labels,
+// al revés que en el resto del archivo: la etapa "Cliente" existe con ese mismo
+// nombre en los dos pipelines, así que el label es ambiguo y el ID no.
+const EMITIDA_PIPELINE_ID = '907998512'; // CE BROKERS - CLIENTES
+const EMITIDA_STAGE_ID = '1377519216'; // "Cliente"
 const COMMENTS_PROPERTY = 'comentarios';
 const SUB_AGENCY_PROPERTY = 'agencia';
 const META_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
@@ -97,10 +104,12 @@ async function resolveTargetStageMap() {
   let bestPipeline = null;
   let bestMatchCount = 0;
   const allStageIdToLabel = new Map();
+  const allStageIdToPipelineId = new Map();
 
   for (const pipeline of data.results) {
     for (const stage of pipeline.stages) {
       allStageIdToLabel.set(stage.id, stage.label);
+      allStageIdToPipelineId.set(stage.id, pipeline.id);
     }
     const matchCount = pipeline.stages.filter((s) =>
       wantedLabels.has(s.label.trim().toLowerCase())
@@ -136,6 +145,7 @@ async function resolveTargetStageMap() {
     stageIdToLabel,
     labelToStageId,
     allStageIdToLabel,
+    allStageIdToPipelineId,
     pipelineLabelToStageId,
     missingLabels: TARGET_STAGE_LABELS.filter((l) => !labelToStageId.has(l)),
     expiresAt: Date.now() + META_CACHE_TTL_MS,
@@ -153,7 +163,28 @@ async function resolveInitialStage() {
     throw new Error(`No se encontró la etapa inicial "${INITIAL_STAGE_LABEL}" en el pipeline`);
   }
 
-  return { pipelineId: stageMap.pipelineId, stageId };
+  return { pipelineId: stageMap.pipelineId, stageId, stageLabel: INITIAL_STAGE_LABEL };
+}
+
+// Etapa de la variante "ya emitida". Se valida contra los pipelines reales para
+// fallar con un mensaje claro si alguien borra o mueve la etapa en HubSpot,
+// en vez de mandar un dealstage inválido y comerse un 400 opaco.
+async function resolveEmitidaStage() {
+  const stageMap = await resolveTargetStageMap();
+  const stageLabel = stageMap.allStageIdToLabel.get(EMITIDA_STAGE_ID);
+
+  if (!stageLabel) {
+    throw new Error(`No existe la etapa ${EMITIDA_STAGE_ID} en ningún pipeline de deals`);
+  }
+
+  const ownerPipelineId = stageMap.allStageIdToPipelineId.get(EMITIDA_STAGE_ID);
+  if (ownerPipelineId !== EMITIDA_PIPELINE_ID) {
+    throw new Error(
+      `La etapa ${EMITIDA_STAGE_ID} pertenece al pipeline ${ownerPipelineId}, no a ${EMITIDA_PIPELINE_ID}`
+    );
+  }
+
+  return { pipelineId: EMITIDA_PIPELINE_ID, stageId: EMITIDA_STAGE_ID, stageLabel };
 }
 
 // Trae, paginando, todos los objetos de un tipo que tengan propertyName == value.
@@ -467,31 +498,43 @@ function mapSharedProperties(contact) {
 // "agency" y "leadSource" siempre vienen del server (de la alianza autenticada),
 // nunca del body que manda el cliente: así ninguna alianza puede crear un lead
 // a nombre de otra agencia ni falsear su origen.
-async function createLead({ agency, leadSource, contact, tipoRiesgo, details, agencia }) {
+async function createLead({
+  agency,
+  leadSource,
+  contact,
+  tipoRiesgo,
+  details,
+  agencia,
+  emitida = false,
+}) {
   const schema = getDealSchema(tipoRiesgo);
   if (!schema) {
     throw new Error(`tipoRiesgo "${tipoRiesgo}" no soportado`);
   }
 
+  const normalizedDetails = normalizeDealDetails(schema, details);
   const companyName = typeof contact.companyName === 'string' ? contact.companyName.trim() : '';
   const isCompany = companyName !== '';
 
   const buildDeal = async () => {
-    const { pipelineId, stageId } = await resolveInitialStage();
+    const { pipelineId, stageId, stageLabel } = emitida
+      ? await resolveEmitidaStage()
+      : await resolveInitialStage();
 
     // Nombre del deal: alianza - sub-agencia - tipo de riesgo - patente - email.
     // La sub-agencia y la patente son opcionales; la patente sólo aplica a AUTO.
-    const patente = tipoRiesgo === 'AUTO' ? (details || {}).patente : null;
+    const patente = tipoRiesgo === 'AUTO' ? normalizedDetails.patente : null;
     const dealNameParts = [agency, agencia, tipoRiesgo, patente, contact.email].filter(Boolean);
 
     return {
       pipelineId,
+      stageLabel,
       properties: {
         dealname: dealNameParts.join(' - '),
         pipeline: pipelineId,
         dealstage: stageId,
         ...(agencia ? { agencia } : {}),
-        ...schema.toHubspotProperties(details || {}),
+        ...schema.toHubspotProperties(normalizedDetails),
       },
     };
   };
@@ -509,7 +552,7 @@ async function createLead({ agency, leadSource, contact, tipoRiesgo, details, ag
     };
 
     const company = await upsertCompany(companyProperties, agencyPropertyName, agency);
-    const { pipelineId, properties: dealProperties } = await buildDeal();
+    const { pipelineId, stageLabel, properties: dealProperties } = await buildDeal();
     const createdDeal = await createDealForCompany(dealProperties, company.id);
 
     return {
@@ -521,7 +564,7 @@ async function createLead({ agency, leadSource, contact, tipoRiesgo, details, ag
       deal: {
         id: createdDeal.id,
         name: dealProperties.dealname,
-        stage: INITIAL_STAGE_LABEL,
+        stage: stageLabel,
         pipeline: pipelineId,
       },
     };
@@ -533,6 +576,7 @@ async function createLead({ agency, leadSource, contact, tipoRiesgo, details, ag
     lastname: contact.lastName,
     ...mapSharedProperties(contact),
     hs_whatsapp_phone_number: contact.whatsappPhone || contact.phone,
+    ...(contact.dni ? { dni: contact.dni } : {}),
     ...(contact.dateOfBirth
       ? { date_of_birth: String(new Date(contact.dateOfBirth).getTime()) }
       : {}),
@@ -542,7 +586,7 @@ async function createLead({ agency, leadSource, contact, tipoRiesgo, details, ag
   };
 
   const upsertedContact = await upsertContactByEmail(contactProperties);
-  const { pipelineId, properties: dealProperties } = await buildDeal();
+  const { pipelineId, stageLabel, properties: dealProperties } = await buildDeal();
   const createdDeal = await createDealForContact(dealProperties, upsertedContact.id);
 
   return {
@@ -555,7 +599,7 @@ async function createLead({ agency, leadSource, contact, tipoRiesgo, details, ag
     deal: {
       id: createdDeal.id,
       name: dealProperties.dealname,
-      stage: INITIAL_STAGE_LABEL,
+      stage: stageLabel,
       pipeline: pipelineId,
     },
   };

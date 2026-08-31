@@ -1,4 +1,8 @@
-const { getDealSchema, getSupportedRiskTypes } = require('../services/leadSchemas');
+const {
+  getDealSchema,
+  getSupportedRiskTypes,
+  normalizeDealDetails,
+} = require('../services/leadSchemas');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PERSON_REQUIRED_FIELDS = ['email', 'firstName', 'lastName', 'phone'];
@@ -42,6 +46,12 @@ function validateLeadPayload(body) {
     return errors;
   }
 
+  // "emitida" elige la variante de alta: false/ausente entra como lead nuevo,
+  // true entra directo al pipeline de pólizas ya emitidas.
+  if (deal.emitida !== undefined && typeof deal.emitida !== 'boolean') {
+    errors.push('deal.emitida debe ser true o false');
+  }
+
   const { tipoRiesgo, details } = deal;
   if (!tipoRiesgo) {
     errors.push('Falta deal.tipoRiesgo');
@@ -52,11 +62,14 @@ function validateLeadPayload(body) {
         `deal.tipoRiesgo "${tipoRiesgo}" no soportado. Válidos: ${getSupportedRiskTypes().join(', ')}`
       );
     } else {
-      const data = details || {};
+      const data = normalizeDealDetails(schema, details);
       for (const field of schema.requiredFields) {
         if (data[field] === undefined || data[field] === null || data[field] === '') {
           errors.push(`Falta el campo deal.details.${field}`);
         }
+      }
+      if (schema.validateDetails) {
+        errors.push(...schema.validateDetails(data));
       }
     }
   }

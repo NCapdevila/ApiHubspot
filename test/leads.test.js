@@ -38,6 +38,9 @@ hubspotClient.put = (url, body) => handle('PUT', url, body);
 const STAGE_NUEVO = 'stage-nuevo';
 const STAGE_EN_PROCESO = 'stage-en-proceso';
 const PIPELINE_ID = 'pipeline-1';
+// IDs reales del pipeline de pólizas ya emitidas (CE BROKERS - CLIENTES).
+const EMITIDA_PIPELINE_ID = '907998512';
+const EMITIDA_STAGE_ID = '1377519216';
 const CONTACT_AGENCY_PROPERTY = 'productor_agencia';
 const COMPANY_AGENCY_PROPERTY = 'productor_agencia_empresa';
 
@@ -63,6 +66,16 @@ const META_HANDLERS = {
           { id: STAGE_EN_PROCESO, label: 'En proceso' },
           { id: 'stage-emitida', label: 'Emitida' },
           { id: 'stage-no-interesado', label: 'No interesado' },
+          // "Cliente" existe en los dos pipelines: por eso la variante emitida
+          // se resuelve por ID y no por label.
+          { id: 'stage-cliente-ventas', label: 'Cliente' },
+        ],
+      },
+      {
+        id: EMITIDA_PIPELINE_ID,
+        stages: [
+          { id: EMITIDA_STAGE_ID, label: 'Cliente' },
+          { id: '1377519218', label: 'Axr Emitido' },
         ],
       },
     ],
@@ -434,6 +447,263 @@ test('listado por agencia: unifica deals de contactos y de empresas', async () =
   const stats = await hubspotService.getDealStatsByProducerAgency(AGENCY);
   assert.strictEqual(stats.totalDeals, 2);
   assert.strictEqual(stats.byStage['En proceso'], 2);
+});
+
+// --- 6. Campos opcionales del listado: agencia y comments -----------------
+
+const OPTIONAL_FIELDS_HANDLERS = {
+  'POST /crm/v3/objects/contacts/search': {
+    results: [
+      { id: 'c1', properties: { email: 'juan@example.com', firstname: 'Juan', lastname: 'Perez' } },
+    ],
+  },
+  'POST /crm/v3/objects/companies/search': {
+    results: [{ id: 'co1', properties: { name: 'Transportes SRL', email: 'contacto@t.com' } }],
+  },
+  'POST /crm/v4/associations/contacts/deals/batch/read': {
+    results: [{ from: { id: 'c1' }, to: [{ toObjectId: 901 }] }],
+  },
+  'POST /crm/v4/associations/companies/deals/batch/read': {
+    results: [{ from: { id: 'co1' }, to: [{ toObjectId: 902 }] }],
+  },
+  'POST /crm/v3/objects/deals/batch/read': {
+    results: [
+      {
+        id: '901',
+        properties: {
+          dealstage: 'stage-no-interesado',
+          createdate: '2026-01-15T10:00:00Z',
+          comentarios: 'Ya tiene póliza vigente',
+        },
+      },
+      {
+        id: '902',
+        properties: {
+          dealstage: STAGE_EN_PROCESO,
+          createdate: '2026-01-16T10:00:00Z',
+          agencia: 'SubAgencia1',
+        },
+      },
+    ],
+  },
+};
+
+test('listado: "comments" sólo en No interesado y "agencia" sólo si el deal la tiene', async () => {
+  setup(OPTIONAL_FIELDS_HANDLERS);
+
+  const list = await hubspotService.getDealsListByProducerAgency('Lucy', {
+    from: '2026-01-01',
+    to: '2026-01-31',
+  });
+
+  // El sobre repite los parámetros recibidos.
+  assert.strictEqual(list.agency, 'Lucy');
+  assert.strictEqual(list.dateField, 'createdate');
+  assert.deepStrictEqual(list.range, { from: '2026-01-01', to: '2026-01-31' });
+  assert.strictEqual(list.total, 2);
+
+  const noInteresado = list.deals.find((d) => d.dealId === '901');
+  assert.strictEqual(noInteresado.stage, 'No interesado');
+  assert.strictEqual(noInteresado.comments, 'Ya tiene póliza vigente');
+  assert.ok(!('agencia' in noInteresado), 'sin sub-agencia, la clave no debe estar');
+
+  const conAgencia = list.deals.find((d) => d.dealId === '902');
+  assert.strictEqual(conAgencia.agencia, 'SubAgencia1');
+  assert.ok(!('comments' in conAgencia), 'comments sólo aplica a No interesado');
+});
+
+test('stats: byAgencia desglosa por sub-agencia incluyendo deals de empresa', async () => {
+  setup(OPTIONAL_FIELDS_HANDLERS);
+
+  const stats = await hubspotService.getDealStatsByProducerAgency('Lucy', {
+    from: '2026-01-01',
+    to: '2026-01-31',
+  });
+
+  assert.strictEqual(stats.totalDeals, 2);
+  assert.deepStrictEqual(stats.byStage, {
+    'En proceso': 1,
+    Emitida: 0,
+    'No interesado': 1,
+  });
+  assert.strictEqual(stats.otrasEtapas, 0);
+  // El deal de la sub-agencia es de un cliente empresa: antes no entraba acá.
+  assert.deepStrictEqual(stats.byAgencia, {
+    SubAgencia1: {
+      byStage: { 'En proceso': 1, Emitida: 0, 'No interesado': 0 },
+      otrasEtapas: 0,
+      totalDeals: 1,
+    },
+  });
+  assert.strictEqual(stats.etapasNoEncontradas, undefined);
+});
+
+// --- 7. HOGAR -------------------------------------------------------------
+
+const HOGAR_CONTACT = {
+  email: 'ana@example.com',
+  firstName: 'Ana',
+  lastName: 'Gomez',
+  dni: '30123456',
+  phone: '+541155555555',
+  state: 'Buenos Aires',
+  city: 'La Plata',
+  zip: '1900',
+};
+
+const HOGAR_DETAILS = {
+  tipoHogar: 'Casa',
+  ambientes: 3,
+  amount: '150000',
+  comentarios: 'Cliente derivado',
+};
+
+test('HOGAR: mapea las propiedades del riesgo y el dni del contacto', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '111' }] },
+    'POST /crm/v3/objects/deals': { id: '910' },
+  });
+
+  const result = await hubspotService.createLead({
+    agency: 'AlianzaHogar',
+    leadSource: 'AlianzasExternas',
+    contact: HOGAR_CONTACT,
+    tipoRiesgo: 'HOGAR',
+    details: HOGAR_DETAILS,
+  });
+
+  const [upsert] = callsTo('POST', '/crm/v3/objects/contacts/batch/upsert');
+  assert.strictEqual(upsert.body.inputs[0].properties.dni, '30123456');
+  assert.strictEqual(upsert.body.inputs[0].properties.state, 'Buenos Aires');
+
+  const [deal] = callsTo('POST', '/crm/v3/objects/deals');
+  assert.strictEqual(deal.body.properties.tipo_riesgo, 'HOGAR');
+  assert.strictEqual(deal.body.properties.tipo_hogar, 'Casa');
+  assert.strictEqual(deal.body.properties.ambientes_hogar, 3);
+  assert.strictEqual(deal.body.properties.amount, '150000');
+  assert.strictEqual(deal.body.properties.comentarios, 'Cliente derivado');
+  assert.strictEqual(deal.body.properties.m2_hogar, undefined, 'el form no lo manda');
+  // Sin patente: HOGAR no la usa aunque el dealname la soporte para AUTO.
+  assert.strictEqual(
+    deal.body.properties.dealname,
+    `AlianzaHogar - HOGAR - ${HOGAR_CONTACT.email}`
+  );
+
+  // Variante por defecto: pipeline de ventas, etapa "Nuevo".
+  assert.strictEqual(deal.body.properties.pipeline, PIPELINE_ID);
+  assert.strictEqual(deal.body.properties.dealstage, STAGE_NUEVO);
+  assert.strictEqual(result.deal.stage, 'Nuevo');
+  assert.strictEqual(result.deal.pipeline, PIPELINE_ID);
+});
+
+test('HOGAR: acepta los nombres internos de HubSpot como alias', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '112' }] },
+    'POST /crm/v3/objects/deals': { id: '911' },
+  });
+
+  const snakeDetails = { tipo_hogar: 'Departamento', ambientes_hogar: 2, amount: 90000 };
+
+  assert.deepStrictEqual(
+    validateLeadPayload({ contact: HOGAR_CONTACT, deal: { tipoRiesgo: 'HOGAR', details: snakeDetails } }),
+    [],
+    'el alias snake_case debe pasar la validación'
+  );
+
+  await hubspotService.createLead({
+    agency: 'AlianzaHogar',
+    leadSource: 'AlianzasExternas',
+    contact: HOGAR_CONTACT,
+    tipoRiesgo: 'HOGAR',
+    details: snakeDetails,
+  });
+
+  const [deal] = callsTo('POST', '/crm/v3/objects/deals');
+  assert.strictEqual(deal.body.properties.tipo_hogar, 'Departamento');
+  assert.strictEqual(deal.body.properties.ambientes_hogar, 2);
+  assert.strictEqual(deal.body.properties.amount, '90000');
+});
+
+test('HOGAR emitida: usa el pipeline y la etapa de pólizas emitidas', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '113' }] },
+    'POST /crm/v3/objects/deals': { id: '912' },
+  });
+
+  const result = await hubspotService.createLead({
+    agency: 'AlianzaHogar',
+    leadSource: 'AlianzasExternas',
+    contact: HOGAR_CONTACT,
+    tipoRiesgo: 'HOGAR',
+    details: HOGAR_DETAILS,
+    emitida: true,
+  });
+
+  const [deal] = callsTo('POST', '/crm/v3/objects/deals');
+  assert.strictEqual(deal.body.properties.pipeline, EMITIDA_PIPELINE_ID);
+  assert.strictEqual(deal.body.properties.dealstage, EMITIDA_STAGE_ID);
+  // El label sale del pipeline real, no de una constante del código.
+  assert.strictEqual(result.deal.stage, 'Cliente');
+  assert.strictEqual(result.deal.pipeline, EMITIDA_PIPELINE_ID);
+
+  // El resto del alta no cambia: sigue siendo un contacto con su deal asociado.
+  assert.deepStrictEqual(deal.body.associations, [
+    { to: { id: '113' }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 3 }] },
+  ]);
+});
+
+test('HOGAR: faltan tipoHogar/ambientes -> error de validación', () => {
+  const errors = validateLeadPayload({
+    contact: HOGAR_CONTACT,
+    deal: { tipoRiesgo: 'HOGAR', details: { amount: '1000' } },
+  });
+  assert.ok(errors.includes('Falta el campo deal.details.tipoHogar'), JSON.stringify(errors));
+  assert.ok(errors.includes('Falta el campo deal.details.ambientes'), JSON.stringify(errors));
+});
+
+test('HOGAR: amount ambiguo se rechaza en vez de mandar un monto mal', () => {
+  // "150.000" y "1.500" son ambiguos (¿separador de miles o decimal?): se rechazan.
+  const malos = ['150.000,50', '$150.000', '150.000', '1.500', '1.500,00', '1.500.000', 'abc'];
+  for (const amount of malos) {
+    const errors = validateLeadPayload({
+      contact: HOGAR_CONTACT,
+      deal: { tipoRiesgo: 'HOGAR', details: { ...HOGAR_DETAILS, amount } },
+    });
+    assert.ok(
+      errors.some((e) => e.startsWith('deal.details.amount')),
+      `amount="${amount}" debería fallar -> ${JSON.stringify(errors)}`
+    );
+  }
+
+  const buenos = ['150000', '150000.50', 150000, '$150000', ' 150000 ', undefined];
+  for (const amount of buenos) {
+    const errors = validateLeadPayload({
+      contact: HOGAR_CONTACT,
+      deal: { tipoRiesgo: 'HOGAR', details: { ...HOGAR_DETAILS, amount } },
+    });
+    assert.deepStrictEqual(errors, [], `amount=${JSON.stringify(amount)} debería pasar`);
+  }
+});
+
+test('deal.emitida debe ser booleano', () => {
+  const errors = validateLeadPayload({
+    contact: HOGAR_CONTACT,
+    deal: { tipoRiesgo: 'HOGAR', details: HOGAR_DETAILS, emitida: 'si' },
+  });
+  assert.ok(errors.includes('deal.emitida debe ser true o false'), JSON.stringify(errors));
+});
+
+test('AUTO sigue sin verse afectado por los hooks nuevos', () => {
+  assert.deepStrictEqual(
+    validateLeadPayload({ contact: PERSON_CONTACT, deal: { tipoRiesgo: 'AUTO', details: DEAL_DETAILS } }),
+    []
+  );
+  assert.ok(
+    validateLeadPayload({
+      contact: PERSON_CONTACT,
+      deal: { tipoRiesgo: 'AUTO', details: { ...DEAL_DETAILS, marca: undefined } },
+    }).includes('Falta el campo deal.details.marca')
+  );
 });
 
 // --- Ejecución ------------------------------------------------------------

@@ -56,7 +56,26 @@ Todos los endpoints salvo `/health` requieren header `x-api-key: <tu-api-key>`.
 - `GET /deals/by-producer-agency` (`contacts`) — listado de deals con datos del cliente. Cada registro trae `type`: `"person"` (con `firstName`/`lastName`) o `"company"` (con `companyName`). Incluye `comments` cuando `stage` es `"No Interesado"`.
 - `POST /leads` (`leads`) — crea/actualiza cliente + deal en etapa "Nuevo". `productor_agencia` y `lead_source` siempre salen de la api-key, nunca del body. `deal.agencia` (opcional) identifica sub-agencia sin reemplazar la agencia autenticada.
 
-Ver `services/leadSchemas.js` para agregar un nuevo `tipoRiesgo` además de `AUTO`.
+Ver `services/leadSchemas.js` para agregar un nuevo `tipoRiesgo` además de `AUTO` y `HOGAR`.
+
+### Tipos de riesgo
+
+**`AUTO`** — `deal.details`: `marca`, `modelo`, `version`, `anio`, `numeroMotor`, `numeroChasis`, `es0km` (obligatorios); `patente`, `esPrendado` (opcionales).
+
+**`HOGAR`** — `deal.details`: `tipoHogar`, `ambientes` (obligatorios); `amount`, `comentarios` (opcionales). Acepta además los nombres internos de HubSpot como alias (`tipo_hogar`, `ambientes_hogar`, `comments`), porque el form de esa alianza los manda así.
+
+`amount` va a la propiedad numérica `amount` de HubSpot. Se acepta número o string, con `$`/espacios, pero **se rechaza todo formato ambiguo**: `"150.000"` puede ser 150000 o 150, así que devuelve 400 en vez de arriesgar un monto mal cargado. Formatos válidos: `150000`, `"150000"`, `"150000.50"`, `"$150000"`.
+
+### Variante "ya emitida" (`deal.emitida`)
+
+Opcional, default `false`.
+
+| `deal.emitida` | Pipeline | Etapa |
+|---|---|---|
+| ausente / `false` | `CE BROKERS - VENTAS` (resuelto por label) | `Nuevo` |
+| `true` | `CE BROKERS - CLIENTES` (`907998512`) | `Cliente` (`1377519216`) |
+
+El caso `emitida` es el único lugar del código que usa IDs de pipeline/etapa en vez de resolver por label: la etapa `Cliente` existe con ese mismo nombre en los dos pipelines, así que el label es ambiguo y el ID no. Están como constantes en `services/hubspotServices.js`. Al arrancar se valida contra los pipelines reales que la etapa exista y pertenezca a ese pipeline; si no, falla con un error explícito.
 
 ### Clientes persona vs. clientes empresa en `POST /leads`
 
@@ -69,6 +88,7 @@ Ver `services/leadSchemas.js` para agregar un nuevo `tipoRiesgo` además de `AUT
 | `contact.companyName`| no se manda   | obligatorio (string no vacío) |
 | `contact.dateOfBirth`| opcional      | no aplica (se ignora)       |
 | `contact.whatsappPhone`| opcional    | no aplica (se ignora)       |
+| `contact.dni`        | opcional      | no aplica (se ignora)       |
 
 `contact.companyName` es la **alternativa** a `firstName` + `lastName`: si viene, el cliente se crea como **Company** en HubSpot en vez de como Contact, y `firstName`/`lastName` dejan de ser obligatorios. `country`, `state`, `city` y `zip` se mapean igual en ambos casos. `whatsappPhone` y `dateOfBirth` sólo aplican a personas: el objeto Company no tiene esas propiedades.
 
