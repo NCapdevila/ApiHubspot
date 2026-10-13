@@ -1,0 +1,126 @@
+{
+  "info": {
+    "name": "Foxia - Hogar",
+    "description": "Alta de leads de HOGAR en HubSpot.\n\n`POST https://api.cebrokers.com.ar/hubspot/leads`\n\nCompletar la variable **`apiKey`** con la key de la alianza (header `x-api-key`).\n\n## Las dos variantes\n| Request | `deal.emitida` | Entra en |\n|---|---|---|\n| HOGAR - COTIZACION | ausente / `false` | pipeline de ventas, etapa **Nuevo** |\n| HOGAR - EMISION | `true` | pipeline de clientes, etapa **Cliente** |\n\nEl body es identico salvo ese campo.\n\n## Campos\n\n### contact\n| Campo | Obligatorio | Nota |\n|---|---|---|\n| `email` | si | |\n| `phone` | si | |\n| `firstName` | si | |\n| `lastName` | si | |\n| `dni` | no | |\n| `state` / `city` / `zip` | no | |\n| `country` | no | |\n\n### deal.details (HOGAR)\n| Campo | Obligatorio | Nota |\n|---|---|---|\n| `tipoHogar` | si | alias: `tipo_hogar` |\n| `ambientes` | si | numerico. alias: `ambientes_hogar` |\n| `amount` | no | ver formato abajo |\n| `comentarios` | no | alias: `comments` |\n\n**Formato de `amount`:** entero o con hasta 2 decimales y punto. Validos: `150000`, `\"150000\"`, `\"150000.50\"`, `\"$150000\"`. Se **rechaza con 400** todo lo ambiguo: `\"150.000\"` (puede ser 150000 o 150), cualquier valor con coma, y separadores de miles. Es a proposito: mejor un 400 que un monto mal cargado.\n\n**No mandar** `productor_agencia` ni `lead_source`: los pone el server segun la api-key. Tampoco `m2_hogar`, que no se usa.\n\n## Respuestas\n- **201**: alta OK. Devuelve `contact` (o `company`) y `deal` con su `id`, `name`, `stage` y `pipeline`.\n- **400**: datos invalidos. `details` es un array con un mensaje por campo.\n- **401**: falta o es invalida la `x-api-key`.\n- **403**: la key no tiene el scope `leads`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "apiKey",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "HOGAR - COTIZACION",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "https://api.cebrokers.com.ar/hubspot/leads",
+          "protocol": "https",
+          "host": [
+            "api",
+            "cebrokers",
+            "com",
+            "ar"
+          ],
+          "path": [
+            "hubspot",
+            "leads"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contact\": {\n    \"firstName\": \"Ana\",\n    \"lastName\": \"Gomez\",\n    \"dni\": \"32987654\",\n    \"email\": \"ana.gomez@example.com\",\n    \"phone\": \"+5491155550002\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"details\": {\n      \"tipoHogar\": \"Casa\",\n      \"ambientes\": 3,\n      \"amount\": \"150000\",\n      \"comentarios\": \"Notebook de trabajo, bicicleta y electrodomesticos\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Pedido de cotizacion. Sin `emitida`, el lead entra como oportunidad nueva en la etapa \"Nuevo\" del pipeline de ventas.\n\n### contact\n| Campo | Obligatorio | Nota |\n|---|---|---|\n| `email` | si | |\n| `phone` | si | |\n| `firstName` | si | |\n| `lastName` | si | |\n| `dni` | no | |\n| `state` / `city` / `zip` | no | |\n| `country` | no | |\n\n### deal.details (HOGAR)\n| Campo | Obligatorio | Nota |\n|---|---|---|\n| `tipoHogar` | si | alias: `tipo_hogar` |\n| `ambientes` | si | numerico. alias: `ambientes_hogar` |\n| `amount` | no | ver formato abajo |\n| `comentarios` | no | alias: `comments` |\n\n**Formato de `amount`:** entero o con hasta 2 decimales y punto. Validos: `150000`, `\"150000\"`, `\"150000.50\"`, `\"$150000\"`. Se **rechaza con 400** todo lo ambiguo: `\"150.000\"` (puede ser 150000 o 150), cualquier valor con coma, y separadores de miles. Es a proposito: mejor un 400 que un monto mal cargado.\n\n**No mandar** `productor_agencia` ni `lead_source`: los pone el server segun la api-key. Tampoco `m2_hogar`, que no se usa."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.test('devuelve deal.id', () => pm.expect(b.deal.id).to.be.a('string'));",
+              "console.log('deal:', b.deal.id, '| etapa:', b.deal.stage, '| contacto:', b.contact.id);",
+              "pm.test('entra en etapa Nuevo', () => pm.expect(b.deal.stage).to.eql('Nuevo'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "HOGAR - EMISION",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "https://api.cebrokers.com.ar/hubspot/leads",
+          "protocol": "https",
+          "host": [
+            "api",
+            "cebrokers",
+            "com",
+            "ar"
+          ],
+          "path": [
+            "hubspot",
+            "leads"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contact\": {\n    \"firstName\": \"Ana\",\n    \"lastName\": \"Gomez\",\n    \"dni\": \"32987654\",\n    \"email\": \"ana.gomez@example.com\",\n    \"phone\": \"+5491155550002\",\n    \"state\": \"Buenos Aires\",\n    \"city\": \"La Plata\",\n    \"zip\": \"1900\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"HOGAR\",\n    \"emitida\": true,\n    \"details\": {\n      \"tipoHogar\": \"Casa\",\n      \"ambientes\": 3,\n      \"amount\": \"150000\",\n      \"comentarios\": \"Notebook de trabajo, bicicleta y electrodomesticos\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Poliza ya emitida. Mismo body que COTIZACION mas `\"emitida\": true`, que manda el deal al pipeline de clientes (907998512) en la etapa \"Cliente\" (1377519216).\n\n### contact\n| Campo | Obligatorio | Nota |\n|---|---|---|\n| `email` | si | |\n| `phone` | si | |\n| `firstName` | si | |\n| `lastName` | si | |\n| `dni` | no | |\n| `state` / `city` / `zip` | no | |\n| `country` | no | |\n\n### deal.details (HOGAR)\n| Campo | Obligatorio | Nota |\n|---|---|---|\n| `tipoHogar` | si | alias: `tipo_hogar` |\n| `ambientes` | si | numerico. alias: `ambientes_hogar` |\n| `amount` | no | ver formato abajo |\n| `comentarios` | no | alias: `comments` |\n\n**Formato de `amount`:** entero o con hasta 2 decimales y punto. Validos: `150000`, `\"150000\"`, `\"150000.50\"`, `\"$150000\"`. Se **rechaza con 400** todo lo ambiguo: `\"150.000\"` (puede ser 150000 o 150), cualquier valor con coma, y separadores de miles. Es a proposito: mejor un 400 que un monto mal cargado.\n\n**No mandar** `productor_agencia` ni `lead_source`: los pone el server segun la api-key. Tampoco `m2_hogar`, que no se usa."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.test('devuelve deal.id', () => pm.expect(b.deal.id).to.be.a('string'));",
+              "console.log('deal:', b.deal.id, '| etapa:', b.deal.stage, '| contacto:', b.contact.id);",
+              "pm.test('entra en etapa Cliente', () => pm.expect(b.deal.stage).to.eql('Cliente'));",
+              "pm.test('pipeline de clientes', () => pm.expect(b.deal.pipeline).to.eql('907998512'));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

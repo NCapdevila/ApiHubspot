@@ -706,6 +706,153 @@ test('AUTO sigue sin verse afectado por los hooks nuevos', () => {
   );
 });
 
+// --- 8. deal.dealstage: etapa explícita por ID ----------------------------
+
+test('dealstage: usa la etapa mandada y deriva el pipeline del ID', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '120' }] },
+    'POST /crm/v3/objects/deals': { id: '920' },
+  });
+
+  // Etapa del pipeline de ventas, distinta de "Nuevo".
+  const result = await hubspotService.createLead({
+    agency: 'AlianzaHogar',
+    leadSource: 'AlianzasExternas',
+    contact: HOGAR_CONTACT,
+    tipoRiesgo: 'HOGAR',
+    details: HOGAR_DETAILS,
+    dealstage: 'stage-emitida',
+  });
+
+  const [deal] = callsTo('POST', '/crm/v3/objects/deals');
+  assert.strictEqual(deal.body.properties.dealstage, 'stage-emitida');
+  assert.strictEqual(deal.body.properties.pipeline, PIPELINE_ID, 'pipeline derivado del ID');
+  assert.strictEqual(result.deal.stage, 'Emitida');
+});
+
+test('dealstage: una etapa de otro pipeline arrastra su propio pipeline', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '121' }] },
+    'POST /crm/v3/objects/deals': { id: '921' },
+  });
+
+  const result = await hubspotService.createLead({
+    agency: 'AlianzaHogar',
+    leadSource: 'AlianzasExternas',
+    contact: HOGAR_CONTACT,
+    tipoRiesgo: 'HOGAR',
+    details: HOGAR_DETAILS,
+    dealstage: '1377519218', // "Axr Emitido", del pipeline de clientes
+  });
+
+  const [deal] = callsTo('POST', '/crm/v3/objects/deals');
+  assert.strictEqual(deal.body.properties.dealstage, '1377519218');
+  assert.strictEqual(deal.body.properties.pipeline, EMITIDA_PIPELINE_ID);
+  assert.strictEqual(result.deal.stage, 'Axr Emitido');
+});
+
+test('dealstage: acepta number y tiene prioridad sobre emitida', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '122' }] },
+    'POST /crm/v3/objects/deals': { id: '922' },
+  });
+
+  await hubspotService.createLead({
+    agency: 'AlianzaHogar',
+    leadSource: 'AlianzasExternas',
+    contact: HOGAR_CONTACT,
+    tipoRiesgo: 'HOGAR',
+    details: HOGAR_DETAILS,
+    dealstage: 1377519218,
+    emitida: true, // el service prioriza dealstage; la ruta igual rechaza el combo
+  });
+
+  const [deal] = callsTo('POST', '/crm/v3/objects/deals');
+  assert.strictEqual(deal.body.properties.dealstage, '1377519218', 'number -> string');
+});
+
+test('dealstage: sin dealstage ni emitida sigue entrando en "Nuevo"', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '123' }] },
+    'POST /crm/v3/objects/deals': { id: '923' },
+  });
+
+  const result = await hubspotService.createLead({
+    agency: 'AlianzaHogar',
+    leadSource: 'AlianzasExternas',
+    contact: HOGAR_CONTACT,
+    tipoRiesgo: 'HOGAR',
+    details: HOGAR_DETAILS,
+  });
+
+  const [deal] = callsTo('POST', '/crm/v3/objects/deals');
+  assert.strictEqual(deal.body.properties.dealstage, STAGE_NUEVO);
+  assert.strictEqual(result.deal.stage, 'Nuevo');
+});
+
+test('dealstage: un ID inexistente da error de request (400), no 500', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '124' }] },
+    'POST /crm/v3/objects/deals': { id: '924' },
+  });
+
+  let err = null;
+  try {
+    await hubspotService.createLead({
+      agency: 'AlianzaHogar',
+      leadSource: 'AlianzasExternas',
+      contact: HOGAR_CONTACT,
+      tipoRiesgo: 'HOGAR',
+      details: HOGAR_DETAILS,
+      dealstage: '999999999',
+    });
+  } catch (e) {
+    err = e;
+  }
+
+  assert.ok(err, 'debe lanzar');
+  assert.strictEqual(err.isRequestError, true, 'la ruta lo traduce a 400');
+  assert.ok(err.message.includes('999999999'), err.message);
+  // Refresca la caché de pipelines una vez antes de rechazar, por si es nueva.
+  assert.strictEqual(callsTo('GET', '/crm/v3/pipelines/deals').length, 1);
+  // Y no crea el deal.
+  assert.strictEqual(callsTo('POST', '/crm/v3/objects/deals').length, 0);
+});
+
+test('validación: dealstage mal formado y combinado con emitida', () => {
+  for (const dealstage of ['', '   ', {}, true]) {
+    const errors = validateLeadPayload({
+      contact: HOGAR_CONTACT,
+      deal: { tipoRiesgo: 'HOGAR', details: HOGAR_DETAILS, dealstage },
+    });
+    assert.ok(
+      errors.some((e) => e.startsWith('deal.dealstage')),
+      `dealstage=${JSON.stringify(dealstage)} -> ${JSON.stringify(errors)}`
+    );
+  }
+
+  // Formas válidas
+  for (const dealstage of ['1333717761', 1333717761]) {
+    assert.deepStrictEqual(
+      validateLeadPayload({
+        contact: HOGAR_CONTACT,
+        deal: { tipoRiesgo: 'HOGAR', details: HOGAR_DETAILS, dealstage },
+      }),
+      []
+    );
+  }
+
+  // Combinado con emitida -> contradictorio
+  const combo = validateLeadPayload({
+    contact: HOGAR_CONTACT,
+    deal: { tipoRiesgo: 'HOGAR', details: HOGAR_DETAILS, dealstage: '1333717761', emitida: true },
+  });
+  assert.ok(
+    combo.some((e) => e.includes('No se pueden combinar')),
+    JSON.stringify(combo)
+  );
+});
+
 // --- Ejecución ------------------------------------------------------------
 
 (async () => {

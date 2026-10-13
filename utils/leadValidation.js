@@ -52,6 +52,23 @@ function validateLeadPayload(body) {
     errors.push('deal.emitida debe ser true o false');
   }
 
+  // "dealstage" permite mandar cualquier etapa por ID. El pipeline se deriva del
+  // ID en el server, así que no se manda. Acá sólo se valida la forma: que el ID
+  // exista en HubSpot se chequea al crear el lead (requiere consultarlo).
+  const { dealstage } = deal;
+  if (dealstage !== undefined && dealstage !== null) {
+    const esIdValido =
+      (typeof dealstage === 'string' && dealstage.trim() !== '') ||
+      (typeof dealstage === 'number' && Number.isFinite(dealstage));
+
+    if (!esIdValido) {
+      errors.push('deal.dealstage debe ser el ID de una etapa de HubSpot (ej. "1333717761")');
+    } else if (deal.emitida === true) {
+      // Las dos cosas fijan la etapa: mandar ambas es contradictorio.
+      errors.push('No se pueden combinar deal.emitida y deal.dealstage: usá uno de los dos');
+    }
+  }
+
   const { tipoRiesgo, details } = deal;
   if (!tipoRiesgo) {
     errors.push('Falta deal.tipoRiesgo');

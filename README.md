@@ -66,14 +66,21 @@ Ver `services/leadSchemas.js` para agregar un nuevo `tipoRiesgo` además de `AUT
 
 `amount` va a la propiedad numérica `amount` de HubSpot. Se acepta número o string, con `$`/espacios, pero **se rechaza todo formato ambiguo**: `"150.000"` puede ser 150000 o 150, así que devuelve 400 en vez de arriesgar un monto mal cargado. Formatos válidos: `150000`, `"150000"`, `"150000.50"`, `"$150000"`.
 
-### Variante "ya emitida" (`deal.emitida`)
+### Etapa del deal
 
-Opcional, default `false`.
+Hay tres formas de fijar la etapa, en este orden de prioridad:
 
-| `deal.emitida` | Pipeline | Etapa |
+| Campo | Pipeline | Etapa |
 |---|---|---|
-| ausente / `false` | `CE BROKERS - VENTAS` (resuelto por label) | `Nuevo` |
-| `true` | `CE BROKERS - CLIENTES` (`907998512`) | `Cliente` (`1377519216`) |
+| `deal.dealstage` (ID) | derivado del ID de la etapa | la que corresponda al ID |
+| `deal.emitida: true` | `CE BROKERS - CLIENTES` (`907998512`) | `Cliente` (`1377519216`) |
+| nada | `CE BROKERS - VENTAS` (resuelto por label) | `Nuevo` |
+
+**`deal.dealstage`** (opcional) toma el **ID** de la etapa en HubSpot, no el nombre: `"1333717765"`. Acepta string o número. **El pipeline no se manda**: se deriva del ID, porque HubSpot exige que el `dealstage` pertenezca al `pipeline` enviado y un mismo label puede existir en varios pipelines (`Cliente` está en los dos).
+
+Si el ID no existe en ningún pipeline, la respuesta es **400** con el ID en el mensaje (no un 500). Antes de rechazar se refresca la caché de pipelines una vez, así una etapa recién creada en HubSpot funciona sin esperar el TTL de 1h.
+
+Mandar `dealstage` y `emitida: true` juntos da **400**: las dos cosas fijan la etapa, mandar ambas es contradictorio.
 
 El caso `emitida` es el único lugar del código que usa IDs de pipeline/etapa en vez de resolver por label: la etapa `Cliente` existe con ese mismo nombre en los dos pipelines, así que el label es ambiguo y el ID no. Están como constantes en `services/hubspotServices.js`. Al arrancar se valida contra los pipelines reales que la etapa exista y pertenezca a ese pipeline; si no, falla con un error explícito.
 

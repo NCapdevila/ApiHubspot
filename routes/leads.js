@@ -13,12 +13,15 @@ const { validateLeadPayload } = require('../utils/leadValidation');
 // {
 //   "contact": { "email", "phone", "firstName"?, "lastName"?, "companyName"?, "dni"?,
 //                "whatsappPhone"?, "dateOfBirth"?, "country"?, "state"?, "city"?, "zip"? },
-//   "deal": { "tipoRiesgo": "AUTO"|"HOGAR", "agencia"?, "emitida"?,
+//   "deal": { "tipoRiesgo": "AUTO"|"HOGAR", "agencia"?, "emitida"?, "dealstage"?,
 //             "details": { ...campos según tipoRiesgo... } }
 // }
 // "emitida" (opcional, default false) elige la variante de alta: sin ella el lead
 // entra como oportunidad nueva (etapa "Nuevo" del pipeline de ventas); con
 // "emitida": true entra directo al pipeline de pólizas ya emitidas.
+// "dealstage" (opcional) permite mandar cualquier otra etapa por ID de HubSpot.
+// El pipeline NO se manda: se deriva del ID de la etapa. Prioridad para fijar la
+// etapa: dealstage > emitida > "Nuevo". Mandar dealstage y emitida juntos da 400.
 // "email" y "phone" son siempre obligatorios. "companyName" es la alternativa a
 // firstName + lastName: si viene, el cliente es una empresa y se crea como Company
 // en HubSpot (buscada por nombre + agencia) en vez de como Contact; firstName y
@@ -48,10 +51,16 @@ router.post('/leads', auth, requireScope('leads'), async (req, res) => {
       details: deal.details,
       agencia: deal.agencia,
       emitida: deal.emitida === true,
+      dealstage: deal.dealstage,
     });
     res.status(201).json(result);
   } catch (err) {
     console.error(err.response?.data || err.message);
+    // Errores por datos del request (ej. un dealstage que no existe) van como 400:
+    // el que manda el lead puede corregirlo, no es una falla del server.
+    if (err.isRequestError) {
+      return res.status(400).json({ error: 'Datos inválidos', details: [err.message] });
+    }
     res.status(500).json({ error: 'Error creando el lead en HubSpot' });
   }
 });

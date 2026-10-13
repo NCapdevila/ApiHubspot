@@ -93,8 +93,8 @@ async function resolveProducerAgencyPropertyName(objectType = 'contacts') {
 // Ubica, dentro de los pipelines de deals, el que mejor matchea las 3 etapas buscadas
 // y arma el mapeo stageId <-> label. También arma un mapa global (todos los pipelines)
 // para poder etiquetar cualquier deal, esté o no en ese pipeline.
-async function resolveTargetStageMap() {
-  if (pipelineStageCache && pipelineStageCache.expiresAt > Date.now()) {
+async function resolveTargetStageMap({ force = false } = {}) {
+  if (!force && pipelineStageCache && pipelineStageCache.expiresAt > Date.now()) {
     return pipelineStageCache;
   }
 
@@ -153,6 +153,16 @@ async function resolveTargetStageMap() {
   return pipelineStageCache;
 }
 
+// Error por datos del request, no por HubSpot. La ruta lo traduce a 400 en vez
+// de 500: el que manda el lead puede corregirlo, no es una falla del server.
+class LeadRequestError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'LeadRequestError';
+    this.isRequestError = true;
+  }
+}
+
 // Resuelve el pipeline y la etapa inicial ("Nuevo") para crear leads nuevos.
 // Es la misma para todas las alianzas: se resuelve por label, no por ID hardcodeado.
 async function resolveInitialStage() {
@@ -185,6 +195,32 @@ async function resolveEmitidaStage() {
   }
 
   return { pipelineId: EMITIDA_PIPELINE_ID, stageId: EMITIDA_STAGE_ID, stageLabel };
+}
+
+// Resuelve una etapa mandada explícitamente en el request. El pipeline NO se pide:
+// se deriva del ID, porque HubSpot exige que el dealstage pertenezca al pipeline
+// que se manda y un mismo label puede existir en varios pipelines.
+async function resolveStageById(stageId) {
+  let stageMap = await resolveTargetStageMap();
+
+  // Si no aparece puede ser una etapa recién creada en HubSpot: se refresca la
+  // caché una vez antes de rechazar, para no obligar a esperar el TTL de 1h.
+  if (!stageMap.allStageIdToLabel.has(stageId)) {
+    stageMap = await resolveTargetStageMap({ force: true });
+  }
+
+  const stageLabel = stageMap.allStageIdToLabel.get(stageId);
+  if (!stageLabel) {
+    throw new LeadRequestError(
+      `deal.dealstage "${stageId}" no existe en ningún pipeline de deals de HubSpot`
+    );
+  }
+
+  return {
+    pipelineId: stageMap.allStageIdToPipelineId.get(stageId),
+    stageId,
+    stageLabel,
+  };
 }
 
 // Trae, paginando, todos los objetos de un tipo que tengan propertyName == value.
@@ -506,6 +542,7 @@ async function createLead({
   details,
   agencia,
   emitida = false,
+  dealstage,
 }) {
   const schema = getDealSchema(tipoRiesgo);
   if (!schema) {
@@ -516,10 +553,21 @@ async function createLead({
   const companyName = typeof contact.companyName === 'string' ? contact.companyName.trim() : '';
   const isCompany = companyName !== '';
 
+  // IDs de etapa de HubSpot son numéricos: se acepta string o number.
+  const requestedStageId =
+    dealstage === undefined || dealstage === null || dealstage === ''
+      ? null
+      : String(dealstage).trim();
+
+  // Prioridad: etapa explícita > variante emitida > etapa inicial ("Nuevo").
+  const resolveStage = () => {
+    if (requestedStageId) return resolveStageById(requestedStageId);
+    if (emitida) return resolveEmitidaStage();
+    return resolveInitialStage();
+  };
+
   const buildDeal = async () => {
-    const { pipelineId, stageId, stageLabel } = emitida
-      ? await resolveEmitidaStage()
-      : await resolveInitialStage();
+    const { pipelineId, stageId, stageLabel } = await resolveStage();
 
     // Nombre del deal: alianza - sub-agencia - tipo de riesgo - patente - email.
     // La sub-agencia y la patente son opcionales; la patente sólo aplica a AUTO.
