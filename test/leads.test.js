@@ -853,6 +853,206 @@ test('validación: dealstage mal formado y combinado con emitida', () => {
   );
 });
 
+// --- 9. MOVILIDAD ---------------------------------------------------------
+
+// Los 6 campos que manda la alianza: nombre, apellido, telefono, mail, codigo
+// postal (todos en contact) + el riesgo. La factura va aparte, como adjunto.
+const MOVILIDAD_CONTACT = {
+  firstName: 'Lucas',
+  lastName: 'Diaz',
+  email: 'lucas.diaz@example.com',
+  phone: '+5491155550010',
+  zip: '1425',
+};
+
+test('MOVILIDAD: alta con los 6 campos, sin details obligatorios', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '130' }] },
+    'POST /crm/v3/objects/deals': { id: '930' },
+  });
+
+  // details es opcional: el riesgo no tiene campos propios.
+  assert.deepStrictEqual(
+    validateLeadPayload({ contact: MOVILIDAD_CONTACT, deal: { tipoRiesgo: 'MOVILIDAD' } }),
+    []
+  );
+
+  const result = await hubspotService.createLead({
+    agency: 'lauty',
+    leadSource: 'AlianzasExternas',
+    contact: MOVILIDAD_CONTACT,
+    tipoRiesgo: 'MOVILIDAD',
+  });
+
+  const [upsert] = callsTo('POST', '/crm/v3/objects/contacts/batch/upsert');
+  const props = upsert.body.inputs[0].properties;
+  assert.strictEqual(props.firstname, 'Lucas');
+  assert.strictEqual(props.lastname, 'Diaz');
+  assert.strictEqual(props.email, MOVILIDAD_CONTACT.email);
+  assert.strictEqual(props.phone, MOVILIDAD_CONTACT.phone);
+  assert.strictEqual(props.zip, '1425');
+  assert.strictEqual(props.productor_agencia, 'lauty');
+
+  const [deal] = callsTo('POST', '/crm/v3/objects/deals');
+  assert.strictEqual(deal.body.properties.tipo_riesgo, 'MOVILIDAD');
+  assert.strictEqual(deal.body.properties.dealstage, STAGE_NUEVO);
+  assert.strictEqual(
+    deal.body.properties.dealname,
+    `lauty - MOVILIDAD - ${MOVILIDAD_CONTACT.email}`
+  );
+  assert.strictEqual(result.deal.stage, 'Nuevo');
+});
+
+test('MOVILIDAD: amount y comentarios opcionales, con la misma validacion', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '131' }] },
+    'POST /crm/v3/objects/deals': { id: '931' },
+  });
+
+  await hubspotService.createLead({
+    agency: 'lauty',
+    leadSource: 'AlianzasExternas',
+    contact: MOVILIDAD_CONTACT,
+    tipoRiesgo: 'MOVILIDAD',
+    details: { amount: '85000', comments: 'Monopatin electrico' },
+  });
+
+  const [deal] = callsTo('POST', '/crm/v3/objects/deals');
+  assert.strictEqual(deal.body.properties.amount, '85000');
+  assert.strictEqual(deal.body.properties.comentarios, 'Monopatin electrico');
+
+  // El amount ambiguo se rechaza igual que en HOGAR.
+  const errors = validateLeadPayload({
+    contact: MOVILIDAD_CONTACT,
+    deal: { tipoRiesgo: 'MOVILIDAD', details: { amount: '85.000' } },
+  });
+  assert.ok(errors.some((e) => e.startsWith('deal.details.amount')), JSON.stringify(errors));
+});
+
+test('MOVILIDAD: aparece en los tipos de riesgo soportados', () => {
+  const errors = validateLeadPayload({
+    contact: MOVILIDAD_CONTACT,
+    deal: { tipoRiesgo: 'NOEXISTE' },
+  });
+  assert.ok(errors.some((e) => e.includes('MOVILIDAD')), JSON.stringify(errors));
+});
+
+// --- 10. Lead con adjunto -------------------------------------------------
+
+const FACTURA = {
+  buffer: Buffer.from('factura-falsa'),
+  originalname: 'factura.pdf',
+  mimetype: 'application/pdf',
+};
+
+const ATTACHMENT_HANDLERS = {
+  'POST /files/v3/files': { id: '7001', name: 'factura.pdf', url: 'https://files/7001' },
+  'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '140' }] },
+  'POST /crm/v3/objects/deals': { id: '940' },
+  'POST /crm/v3/objects/notes': { id: '8001' },
+  'PUT /crm/v4/objects/notes/8001/associations/default/deals/940': {},
+  'PUT /crm/v4/objects/notes/8001/associations/default/contacts/140': {},
+};
+
+test('adjunto: sube el archivo ANTES de crear nada en el CRM', async () => {
+  setup(ATTACHMENT_HANDLERS);
+
+  const result = await hubspotService.createLeadWithAttachment({
+    agency: 'Seguros Movilidad Sancor',
+    leadSource: 'AlianzasExternas',
+    contact: MOVILIDAD_CONTACT,
+    tipoRiesgo: 'MOVILIDAD',
+    attachment: FACTURA,
+  });
+
+  // El orden importa: si el archivo falla, no debe quedar un lead sin factura.
+  const escrituras = calls.filter((c) => c.method !== 'GET').map((c) => c.url);
+  const idxArchivo = escrituras.indexOf('/files/v3/files');
+  const idxContacto = escrituras.indexOf('/crm/v3/objects/contacts/batch/upsert');
+  assert.ok(idxArchivo >= 0, 'debe subir el archivo');
+  assert.ok(idxArchivo < idxContacto, `archivo (${idxArchivo}) debe ir antes del contacto (${idxContacto})`);
+
+  // Nota con el adjunto, asociada al deal y al contacto.
+  const [nota] = callsTo('POST', '/crm/v3/objects/notes');
+  assert.strictEqual(nota.body.properties.hs_attachment_ids, '7001');
+  assert.ok(nota.body.properties.hs_note_body.includes('Seguros Movilidad Sancor'));
+  assert.ok(nota.body.properties.hs_timestamp, 'la nota necesita timestamp');
+
+  assert.strictEqual(
+    callsTo('PUT', '/crm/v4/objects/notes/8001/associations/default/deals/940').length,
+    1,
+    'la nota se asocia al deal'
+  );
+  assert.strictEqual(
+    callsTo('PUT', '/crm/v4/objects/notes/8001/associations/default/contacts/140').length,
+    1,
+    'y al contacto'
+  );
+
+  assert.deepStrictEqual(result.attachment, {
+    fileId: '7001',
+    name: 'factura.pdf',
+    url: 'https://files/7001',
+    noteId: '8001',
+  });
+  // Y sigue devolviendo el lead normal.
+  assert.strictEqual(result.contact.id, '140');
+  assert.strictEqual(result.deal.id, '940');
+});
+
+test('adjunto: si falla la subida no se crea nada en el CRM', async () => {
+  setup({
+    ...ATTACHMENT_HANDLERS,
+    'POST /files/v3/files': () => {
+      throw new Error('413 archivo demasiado grande');
+    },
+  });
+
+  await assert.rejects(() =>
+    hubspotService.createLeadWithAttachment({
+      agency: 'Seguros Movilidad Sancor',
+      leadSource: 'AlianzasExternas',
+      contact: MOVILIDAD_CONTACT,
+      tipoRiesgo: 'MOVILIDAD',
+      attachment: FACTURA,
+    })
+  );
+
+  assert.strictEqual(callsTo('POST', '/crm/v3/objects/contacts/batch/upsert').length, 0);
+  assert.strictEqual(callsTo('POST', '/crm/v3/objects/deals').length, 0);
+  assert.strictEqual(callsTo('POST', '/crm/v3/objects/notes').length, 0);
+});
+
+test('adjunto: un lead empresa asocia la nota a la company', async () => {
+  setup({
+    ...ATTACHMENT_HANDLERS,
+    'POST /crm/v3/objects/companies/search': { results: [] },
+    'POST /crm/v3/objects/companies': { id: '600' },
+    'PUT /crm/v4/objects/deals/940/associations/default/companies/600': {},
+    'PUT /crm/v4/objects/notes/8001/associations/default/companies/600': {},
+  });
+
+  const result = await hubspotService.createLeadWithAttachment({
+    agency: 'Seguros Movilidad Sancor',
+    leadSource: 'AlianzasExternas',
+    contact: { ...COMPANY_CONTACT, companyName: 'Movilidad SRL' },
+    tipoRiesgo: 'MOVILIDAD',
+    attachment: FACTURA,
+  });
+
+  assert.strictEqual(
+    callsTo('PUT', '/crm/v4/objects/notes/8001/associations/default/companies/600').length,
+    1
+  );
+  // No hay contacto: no debe intentar asociar la nota a uno.
+  assert.strictEqual(
+    calls.filter((c) => c.url.includes('/notes/8001/associations/default/contacts/')).length,
+    0
+  );
+  assert.strictEqual(result.company.id, '600');
+  assert.strictEqual(result.attachment.fileId, '7001');
+});
+
 // --- Ejecución ------------------------------------------------------------
 
 (async () => {

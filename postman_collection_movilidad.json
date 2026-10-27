@@ -1,0 +1,178 @@
+{
+  "info": {
+    "name": "Seguros Movilidad Sancor",
+    "description": "Alta de leads de MOVILIDAD con la factura de compra adjunta.\n\n`POST https://api.cebrokers.com.ar/hubspot/leads/with-attachment`\n\nCompletar la variable **`apiKey`** con la key de la alianza.\n\n## Como se manda\nEs **multipart/form-data**, no JSON. Dos campos:\n\n| Campo | Que va |\n|---|---|\n| `payload` | el JSON del lead, como texto |\n| `archivo` | el archivo: PDF, JPG, PNG o WEBP, hasta 10 MB |\n\nEn Postman, en la pestana Body > form-data, la fila `archivo` tiene que estar en tipo **File** para que te deje elegir el archivo del disco.\n\n## Que pasa con el archivo\n1. Se sube a la biblioteca de Files de HubSpot (carpeta `/alianzas-adjuntos`, acceso privado).\n2. Se crea el lead (contacto + deal).\n3. Se crea una nota con el archivo adjunto, asociada al deal.\n\nEl paso 3 es lo que lo hace aparecer en la tarjeta **\"Archivos adjuntos\"** del registro.\n\nEl archivo se sube ANTES de crear el lead: si falla, no queda un lead sin su factura.\n\n## Campos\n\n### contact\n| Campo | Obligatorio |\n|---|---|\n| `firstName` | si |\n| `lastName` | si |\n| `email` | si |\n| `phone` | si |\n| `zip` | no (codigo postal) |\n\nNombre y apellido van **separados** y aceptan compuestos (\"Juan Carlos\" / \"Perez Garcia\"). No mandar un solo campo con todo junto.\n\n### deal\n| Campo | Obligatorio |\n|---|---|\n| `tipoRiesgo` | si, `\"MOVILIDAD\"` |\n| `details.amount` | no (valor de la factura) |\n| `details.comentarios` | no |\n| `agencia` | no (sub-agencia) |\n| `dealstage` | no (ID de etapa; por defecto \"Nuevo\") |\n\n`amount`: entero o con hasta 2 decimales y punto. Se **rechaza con 400** `\"85.000\"` y cualquier valor con coma.\n\n## Respuestas\n- **201**: alta OK. Devuelve `contact`, `deal` y `attachment` (con `fileId` y `noteId`).\n- **400**: datos invalidos, archivo faltante, tipo no permitido o mas de 10 MB.\n- **401**: falta o es invalida la `x-api-key`.\n- **403**: la key no tiene el scope `leads`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "apiKey",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "MOVILIDAD - alta con factura adjunta",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "https://api.cebrokers.com.ar/hubspot/leads/with-attachment",
+          "protocol": "https",
+          "host": [
+            "api",
+            "cebrokers",
+            "com",
+            "ar"
+          ],
+          "path": [
+            "hubspot",
+            "leads",
+            "with-attachment"
+          ]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "payload",
+              "value": "{\n  \"contact\": {\n    \"firstName\": \"Juan Carlos\",\n    \"lastName\": \"Perez Garcia\",\n    \"email\": \"juancarlos.perez@example.com\",\n    \"phone\": \"+5491155550010\",\n    \"zip\": \"1425\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"MOVILIDAD\",\n    \"details\": {\n      \"amount\": \"85000\",\n      \"comentarios\": \"Monopatin electrico\"\n    }\n  }\n}",
+              "type": "text"
+            },
+            {
+              "key": "archivo",
+              "type": "file",
+              "src": [],
+              "description": "Factura de compra: PDF, JPG, PNG o WEBP, hasta 10 MB"
+            }
+          ]
+        },
+        "description": "Elegi un archivo en la fila `archivo` antes de mandar.\n\n### contact\n| Campo | Obligatorio |\n|---|---|\n| `firstName` | si |\n| `lastName` | si |\n| `email` | si |\n| `phone` | si |\n| `zip` | no (codigo postal) |\n\nNombre y apellido van **separados** y aceptan compuestos (\"Juan Carlos\" / \"Perez Garcia\"). No mandar un solo campo con todo junto.\n\n### deal\n| Campo | Obligatorio |\n|---|---|\n| `tipoRiesgo` | si, `\"MOVILIDAD\"` |\n| `details.amount` | no (valor de la factura) |\n| `details.comentarios` | no |\n| `agencia` | no (sub-agencia) |\n| `dealstage` | no (ID de etapa; por defecto \"Nuevo\") |\n\n`amount`: entero o con hasta 2 decimales y punto. Se **rechaza con 400** `\"85.000\"` y cualquier valor con coma."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.test('creo el deal', () => pm.expect(b.deal.id).to.be.a('string'));",
+              "pm.test('subio el archivo', () => pm.expect(b.attachment.fileId).to.be.a('string'));",
+              "pm.test('creo la nota con el adjunto', () => pm.expect(b.attachment.noteId).to.be.a('string'));",
+              "pm.test('entra en Nuevo', () => pm.expect(b.deal.stage).to.eql('Nuevo'));",
+              "console.log('deal:', b.deal.id, '| archivo:', b.attachment.fileId, '| nota:', b.attachment.noteId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "MOVILIDAD - sin adjunto (espera 400)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "https://api.cebrokers.com.ar/hubspot/leads/with-attachment",
+          "protocol": "https",
+          "host": [
+            "api",
+            "cebrokers",
+            "com",
+            "ar"
+          ],
+          "path": [
+            "hubspot",
+            "leads",
+            "with-attachment"
+          ]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "payload",
+              "value": "{\n  \"contact\": {\n    \"firstName\": \"Juan Carlos\",\n    \"lastName\": \"Perez Garcia\",\n    \"email\": \"juancarlos.perez@example.com\",\n    \"phone\": \"+5491155550010\",\n    \"zip\": \"1425\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"MOVILIDAD\",\n    \"details\": {\n      \"amount\": \"85000\",\n      \"comentarios\": \"Monopatin electrico\"\n    }\n  }\n}",
+              "type": "text"
+            }
+          ]
+        },
+        "description": "El archivo es obligatorio en este endpoint. Sin el, 400."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+              "pm.test('avisa que falta el archivo', () => pm.expect(JSON.stringify(pm.response.json().details)).to.include('archivo'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "MOVILIDAD - sin adjunto, por /leads normal",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "x-api-key",
+            "value": "{{apiKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "https://api.cebrokers.com.ar/hubspot/leads",
+          "protocol": "https",
+          "host": [
+            "api",
+            "cebrokers",
+            "com",
+            "ar"
+          ],
+          "path": [
+            "hubspot",
+            "leads"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contact\": {\n    \"firstName\": \"Juan Carlos\",\n    \"lastName\": \"Perez Garcia\",\n    \"email\": \"juancarlos.perez@example.com\",\n    \"phone\": \"+5491155550010\",\n    \"zip\": \"1425\"\n  },\n  \"deal\": {\n    \"tipoRiesgo\": \"MOVILIDAD\",\n    \"details\": {\n      \"amount\": \"85000\",\n      \"comentarios\": \"Monopatin electrico\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Si en algun caso el lead viene sin factura, el endpoint de siempre sirve igual: MOVILIDAD no tiene campos obligatorios propios.\n\n### contact\n| Campo | Obligatorio |\n|---|---|\n| `firstName` | si |\n| `lastName` | si |\n| `email` | si |\n| `phone` | si |\n| `zip` | no (codigo postal) |\n\nNombre y apellido van **separados** y aceptan compuestos (\"Juan Carlos\" / \"Perez Garcia\"). No mandar un solo campo con todo junto.\n\n### deal\n| Campo | Obligatorio |\n|---|---|\n| `tipoRiesgo` | si, `\"MOVILIDAD\"` |\n| `details.amount` | no (valor de la factura) |\n| `details.comentarios` | no |\n| `agencia` | no (sub-agencia) |\n| `dealstage` | no (ID de etapa; por defecto \"Nuevo\") |\n\n`amount`: entero o con hasta 2 decimales y punto. Se **rechaza con 400** `\"85.000\"` y cualquier valor con coma."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "pm.test('sin bloque attachment', () => pm.expect(pm.response.json().attachment).to.be.undefined);"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

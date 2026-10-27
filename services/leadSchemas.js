@@ -103,6 +103,36 @@ const DEAL_SCHEMAS = {
     },
   },
 
+  // MOVILIDAD (Seguros movilidad). El riesgo no agrega campos propios: los datos
+  // del lead (nombre, teléfono, mail, código postal) van todos en "contact".
+  // La factura de compra se adjunta aparte, no es una propiedad del deal.
+  MOVILIDAD: {
+    normalizeDetails: (details = {}) => ({
+      amount: details.amount,
+      comentarios: details.comentarios ?? details.comments,
+    }),
+
+    requiredFields: [],
+
+    validateDetails: (details) => {
+      if (!parseAmount(details.amount).ok) {
+        return [
+          'deal.details.amount debe ser un número sin separador de miles ni símbolo de moneda (ej. 150000 o 150000.50)',
+        ];
+      }
+      return [];
+    },
+
+    toHubspotProperties: (details) => {
+      const amount = parseAmount(details.amount).value;
+      return {
+        tipo_riesgo: 'MOVILIDAD',
+        ...(amount !== null ? { amount } : {}),
+        ...(details.comentarios ? { comentarios: details.comentarios } : {}),
+      };
+    },
+  },
+
   // VIDA:  { requiredFields: [...], toHubspotProperties: (details) => ({...}) },
 };
 

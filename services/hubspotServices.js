@@ -15,6 +15,10 @@ const INITIAL_STAGE_LABEL = 'Nuevo';
 // nombre en los dos pipelines, así que el label es ambiguo y el ID no.
 const EMITIDA_PIPELINE_ID = '907998512'; // CE BROKERS - CLIENTES
 const EMITIDA_STAGE_ID = '1377519216'; // "Cliente"
+
+// Carpeta de la biblioteca de Files donde van los adjuntos de las alianzas.
+// HubSpot la crea sola la primera vez que se sube algo.
+const ATTACHMENT_FOLDER_PATH = '/alianzas-adjuntos';
 const COMMENTS_PROPERTY = 'comentarios';
 const SUB_AGENCY_PROPERTY = 'agencia';
 const META_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
@@ -516,6 +520,62 @@ async function createDealForCompany(properties, companyId) {
   return data;
 }
 
+// Sube un archivo a la biblioteca de Files de HubSpot.
+// Se llama ANTES de tocar el CRM: si el archivo falla (tamaño, tipo, permisos),
+// no queda un lead a medias sin su adjunto.
+// access PRIVATE: la factura no queda accesible por URL pública.
+async function uploadFile({ buffer, originalname, mimetype }) {
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: mimetype }), originalname);
+  form.append('folderPath', ATTACHMENT_FOLDER_PATH);
+  form.append(
+    'options',
+    JSON.stringify({
+      access: 'PRIVATE',
+      overwrite: false,
+      // Dos clientes pueden subir "factura.pdf": se guardan como archivos
+      // distintos en vez de pisarse entre sí.
+      duplicateValidationStrategy: 'NONE',
+      duplicateValidationScope: 'EXACT_FOLDER',
+    })
+  );
+
+  // El cliente tiene Content-Type: application/json por default; hay que sacarlo
+  // para que axios ponga el multipart/form-data con su boundary.
+  const { data } = await hubspotClient.post('/files/v3/files', form, {
+    headers: { 'Content-Type': undefined },
+  });
+
+  return data; // { id, name, url, size, ... }
+}
+
+// Crea una nota con el archivo adjunto y la asocia al deal (y al contacto o la
+// empresa). Es la vía para que el archivo aparezca en la tarjeta "Archivos
+// adjuntos" del registro: HubSpot muestra ahí los adjuntos de las actividades.
+async function createNoteWithAttachment({ fileId, body, dealId, contactId, companyId }) {
+  const { data: note } = await hubspotClient.post('/crm/v3/objects/notes', {
+    properties: {
+      hs_timestamp: new Date().toISOString(),
+      hs_note_body: body,
+      hs_attachment_ids: String(fileId),
+    },
+  });
+
+  const targets = [
+    ['deals', dealId],
+    ['contacts', contactId],
+    ['companies', companyId],
+  ].filter(([, id]) => id);
+
+  for (const [objectType, id] of targets) {
+    await hubspotClient.put(
+      `/crm/v4/objects/notes/${note.id}/associations/default/${objectType}/${id}`
+    );
+  }
+
+  return note;
+}
+
 // Campos de ubicación/contacto que se mapean igual en Contact y en Company.
 // No incluye hs_whatsapp_phone_number: esa propiedad sólo existe en Contacts.
 function mapSharedProperties(contact) {
@@ -653,6 +713,34 @@ async function createLead({
   };
 }
 
+// Crea un lead y le adjunta un archivo (ej. la factura de compra en MOVILIDAD).
+// Orden a propósito: primero se sube el archivo, después se crea el lead. Si el
+// archivo falla, no queda un lead huérfano sin su adjunto; si falla la nota, el
+// lead ya existe y se avisa en la respuesta en vez de perder todo.
+async function createLeadWithAttachment({ attachment, noteBody, ...leadInput }) {
+  const file = await uploadFile(attachment);
+
+  const result = await createLead(leadInput);
+
+  const note = await createNoteWithAttachment({
+    fileId: file.id,
+    body: noteBody || `Archivo adjuntado por la alianza ${leadInput.agency}.`,
+    dealId: result.deal.id,
+    contactId: result.contact?.id,
+    companyId: result.company?.id,
+  });
+
+  return {
+    ...result,
+    attachment: {
+      fileId: file.id,
+      name: file.name,
+      url: file.url || null,
+      noteId: note.id,
+    },
+  };
+}
+
 module.exports = {
   getDealById,
   getContactById,
@@ -661,4 +749,5 @@ module.exports = {
   getDealStatsByProducerAgency,
   getDealsListByProducerAgency,
   createLead,
+  createLeadWithAttachment,
 };
