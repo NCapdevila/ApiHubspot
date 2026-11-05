@@ -39,7 +39,7 @@ function uploadAttachment(req, res, next) {
 // {
 //   "contact": { "email", "phone", "firstName"?, "lastName"?, "companyName"?, "dni"?,
 //                "whatsappPhone"?, "dateOfBirth"?, "country"?, "state"?, "city"?, "zip"? },
-//   "deal": { "tipoRiesgo": "AUTO"|"HOGAR", "agencia"?, "emitida"?, "dealstage"?,
+//   "deal": { "tipoRiesgo": "AUTO"|"HOGAR", "agencia"?, "usuario"?, "emitida"?, "dealstage"?,
 //             "details": { ...campos según tipoRiesgo... } }
 // }
 // "emitida" (opcional, default false) elige la variante de alta: sin ella el lead
@@ -56,6 +56,7 @@ function uploadAttachment(req, res, next) {
 // firstName y lastName siguen siendo obligatorios.
 // "agencia" es opcional: identifica la sub-agencia dentro de una alianza multi-agencia
 // (ej. Lucy). No reemplaza "productor_agencia", que siempre sale de la alianza autenticada.
+// "usuario" es opcional: el usuario que hizo la carga en el sistema de la alianza.
 router.post('/leads', auth, requireScope('leads'), async (req, res) => {
   if (!req.alianza.agency) {
     return res.status(403).json({ error: 'Esta alianza no tiene una agencia asociada' });
@@ -76,6 +77,7 @@ router.post('/leads', auth, requireScope('leads'), async (req, res) => {
       tipoRiesgo: deal.tipoRiesgo,
       details: deal.details,
       agencia: deal.agencia,
+      usuario: deal.usuario,
       emitida: deal.emitida === true,
       dealstage: deal.dealstage,
     });
@@ -154,6 +156,7 @@ router.post(
         tipoRiesgo: deal.tipoRiesgo,
         details: deal.details,
         agencia: deal.agencia,
+        usuario: deal.usuario,
         emitida: deal.emitida === true,
         dealstage: deal.dealstage,
         attachment: req.file,

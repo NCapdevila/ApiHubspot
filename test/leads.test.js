@@ -538,6 +538,81 @@ test('stats: byAgencia desglosa por sub-agencia incluyendo deals de empresa', as
   assert.strictEqual(stats.etapasNoEncontradas, undefined);
 });
 
+// --- 6b. Usuario de la alianza ---------------------------------------------
+
+const USUARIO_HANDLERS = {
+  ...OPTIONAL_FIELDS_HANDLERS,
+  'POST /crm/v3/objects/deals/batch/read': {
+    results: [
+      { id: '901', properties: { dealstage: 'stage-no-interesado', createdate: '2026-01-15T10:00:00Z', agencia: 'SubAgencia1', vendedor_agencia: 'jperez' } },
+      { id: '902', properties: { dealstage: STAGE_EN_PROCESO, createdate: '2026-01-16T10:00:00Z', agencia: 'SubAgencia2', vendedor_agencia: 'jperez' } },
+    ],
+  },
+};
+
+test('stats: byUsuario desglosa en general y dentro de cada sub-agencia', async () => {
+  setup(USUARIO_HANDLERS);
+  const stats = await hubspotService.getDealStatsByProducerAgency('Lucy', {});
+
+  assert.deepStrictEqual(stats.byUsuario, {
+    jperez: { byStage: { 'En proceso': 1, Emitida: 0, 'No interesado': 1 }, otrasEtapas: 0, totalDeals: 2 },
+  });
+  assert.deepStrictEqual(stats.byAgencia.SubAgencia1.byUsuario, {
+    jperez: { byStage: { 'En proceso': 0, Emitida: 0, 'No interesado': 1 }, otrasEtapas: 0, totalDeals: 1 },
+  });
+  assert.strictEqual(stats.byAgencia.SubAgencia2.byUsuario.jperez.totalDeals, 1);
+});
+
+test('stats y listado: sin usuario cargado no aparecen las claves nuevas', async () => {
+  setup(OPTIONAL_FIELDS_HANDLERS);
+  const stats = await hubspotService.getDealStatsByProducerAgency('Lucy', {});
+  assert.ok(!('byUsuario' in stats));
+  const list = await hubspotService.getDealsListByProducerAgency('Lucy', {});
+  assert.ok(list.deals.every((d) => !('usuario' in d)));
+});
+
+test('listado: incluye "usuario" cuando el deal lo tiene', async () => {
+  setup(USUARIO_HANDLERS);
+  const list = await hubspotService.getDealsListByProducerAgency('Lucy', {});
+  assert.strictEqual(list.deals.find((d) => d.dealId === '901').usuario, 'jperez');
+});
+
+test('validación: deal.usuario debe ser un string no vacío', () => {
+  const body = (usuario) => ({
+    contact: { email: 'a@example.com', phone: '1', firstName: 'A', lastName: 'B' },
+    deal: { tipoRiesgo: 'MOVILIDAD', usuario },
+  });
+  const MSG = 'deal.usuario debe ser un string no vacío';
+  assert.ok(validateLeadPayload(body('   ')).includes(MSG));
+  assert.ok(validateLeadPayload(body(123)).includes(MSG));
+  assert.deepStrictEqual(validateLeadPayload(body('jperez')), []);
+  assert.deepStrictEqual(validateLeadPayload(body(undefined)), []);
+});
+
+test('alta: guarda deal.usuario sin espacios y no lo manda si no viene', async () => {
+  const leadHandlers = {
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '1' }] },
+    'POST /crm/v3/objects/deals': { id: '2' },
+  };
+  const input = {
+    agency: 'Lucy',
+    leadSource: 'AlianzasExternas',
+    contact: { email: 'a@example.com', phone: '1', firstName: 'A', lastName: 'B' },
+    tipoRiesgo: 'MOVILIDAD',
+    details: {},
+  };
+  const dealBody = () => calls.find((c) => c.url === '/crm/v3/objects/deals').body;
+
+  setup(leadHandlers);
+  await hubspotService.createLead({ ...input, usuario: ' jperez ' });
+  assert.strictEqual(dealBody().properties.vendedor_agencia, 'jperez');
+
+  setup(leadHandlers);
+  await hubspotService.createLead(input);
+  assert.ok(!('vendedor_agencia' in dealBody().properties));
+  assert.ok(!('usuario' in dealBody().properties));
+});
+
 // --- 7. HOGAR -------------------------------------------------------------
 
 const HOGAR_CONTACT = {

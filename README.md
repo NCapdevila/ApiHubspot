@@ -18,6 +18,8 @@ Los clientes empresa se modelan como objetos **Company**, por lo que el objeto C
 
 Si falta cualquiera de las dos, los endpoints por agencia y el alta de leads empresa fallan con error explícito.
 
+El objeto Deals necesita además la propiedad custom `vendedor_agencia` (texto de una línea), donde se guarda lo que llega en `deal.usuario`. Si no existe, HubSpot rechaza el deal.
+
 ## Configuración (`.env`, no versionado)
 
 ```env
@@ -52,10 +54,10 @@ Todos los endpoints salvo `/health` requieren header `x-api-key: <tu-api-key>`.
 - `GET /health` — sin auth.
 - `GET /deals/:id/status` (`internal`) — estado de un deal por ID.
 - `GET /deals/by-contact?email=` (`internal`) — deals de un contacto.
-- `GET /deals/stats/by-producer-agency` (`stats`) — conteo de deals por etapa, con `from`/`to`/`dateField` opcionales. Si hay sub-agencias (propiedad `agencia`), suma desglose por sub-agencia en `byAgencia`.
+- `GET /deals/stats/by-producer-agency` (`stats`) — conteo de deals por etapa, con `from`/`to`/`dateField` opcionales. Si hay sub-agencias (propiedad `agencia`), suma desglose por sub-agencia en `byAgencia`. Si hay usuarios (propiedad `vendedor_agencia`), suma `byUsuario`, a nivel general y dentro de cada sub-agencia.
 - `GET /deals/by-producer-agency` (`contacts`) — listado de deals con datos del cliente. Cada registro trae `type`: `"person"` (con `firstName`/`lastName`) o `"company"` (con `companyName`). Incluye `comments` cuando `stage` es `"No Interesado"`.
 - `POST /leads/with-attachment` (`leads`) — igual que `POST /leads` pero con un archivo adjunto. Ver más abajo.
-- `POST /leads` (`leads`) — crea/actualiza cliente + deal en etapa "Nuevo". `productor_agencia` y `lead_source` siempre salen de la api-key, nunca del body. `deal.agencia` (opcional) identifica sub-agencia sin reemplazar la agencia autenticada.
+- `POST /leads` (`leads`) — crea/actualiza cliente + deal en etapa "Nuevo". `productor_agencia` y `lead_source` siempre salen de la api-key, nunca del body. `deal.agencia` (opcional) identifica sub-agencia sin reemplazar la agencia autenticada. `deal.usuario` (opcional) guarda quién hizo la carga en el sistema de la alianza.
 
 Ver `services/leadSchemas.js` para agregar un nuevo `tipoRiesgo` además de `AUTO` y `HOGAR`.
 

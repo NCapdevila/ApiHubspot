@@ -46,6 +46,15 @@ function validateLeadPayload(body) {
     return errors;
   }
 
+  // "usuario" es opcional: quién hizo la carga en el sistema de la alianza.
+  if (
+    deal.usuario !== undefined &&
+    deal.usuario !== null &&
+    (typeof deal.usuario !== 'string' || deal.usuario.trim() === '')
+  ) {
+    errors.push('deal.usuario debe ser un string no vacío');
+  }
+
   // "emitida" elige la variante de alta: false/ausente entra como lead nuevo,
   // true entra directo al pipeline de pólizas ya emitidas.
   if (deal.emitida !== undefined && typeof deal.emitida !== 'boolean') {

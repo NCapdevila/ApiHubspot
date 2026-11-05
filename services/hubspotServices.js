@@ -21,13 +21,15 @@ const EMITIDA_STAGE_ID = '1377519216'; // "Cliente"
 const ATTACHMENT_FOLDER_PATH = '/alianzas-adjuntos';
 const COMMENTS_PROPERTY = 'comentarios';
 const SUB_AGENCY_PROPERTY = 'agencia';
+// Usuario que hizo la carga en el sistema de la alianza (ej. el vendedor logueado en Lucy).
+const USER_PROPERTY = 'vendedor_agencia';
 const META_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
 
 const CONTACT_LIST_PROPERTIES = ['email', 'firstname', 'lastname', 'phone'];
 // "email" es una propiedad custom del objeto Companies (internal name "email"),
 // creada a mano en HubSpot: el objeto Company no trae email por defecto.
 const COMPANY_LIST_PROPERTIES = ['name', 'email', 'phone'];
-const DEAL_LIST_PROPERTIES = ['dealstage', 'pipeline', 'createdate', 'closedate', COMMENTS_PROPERTY, SUB_AGENCY_PROPERTY];
+const DEAL_LIST_PROPERTIES = ['dealstage', 'pipeline', 'createdate', 'closedate', COMMENTS_PROPERTY, SUB_AGENCY_PROPERTY, USER_PROPERTY];
 
 const producerAgencyPropertyCache = new Map(); // objectType -> { name, expiresAt }
 let pipelineStageCache = null; // { pipelineId, stageIdToLabel, labelToStageId, allStageIdToLabel, missingLabels, expiresAt }
@@ -356,6 +358,16 @@ async function getAgencyDeals(agencyName, { from, to, dateField }) {
     .map((deal) => ({ deal, ...dealOwners.get(deal.id) }));
 }
 
+// Suma un deal a un bucket de etapas.
+function addToStageBucket(bucket, stageLabel) {
+  bucket.totalDeals++;
+  if (stageLabel) {
+    bucket.byStage[stageLabel]++;
+  } else {
+    bucket.otrasEtapas++;
+  }
+}
+
 function emptyStageBucket() {
   const byStage = {};
   for (const label of TARGET_STAGE_LABELS) byStage[label] = 0;
@@ -367,6 +379,8 @@ function emptyStageBucket() {
 // Si algún deal tiene cargada la propiedad "agencia" (sub-agencia, para alianzas multi-agencia
 // como Lucy), además se agrega "byAgencia" con el mismo desglose por cada sub-agencia,
 // como si cada una fuera una agencia independiente.
+// Si tiene "usuario", se agrega "byUsuario" con el mismo desglose, tanto a nivel general
+// como dentro de cada sub-agencia (un mismo nombre de usuario puede repetirse entre agencias).
 async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 'createdate' } = {}) {
   const stageMap = await resolveTargetStageMap();
   const agencyDeals = await getAgencyDeals(agencyName, { from, to, dateField });
@@ -375,6 +389,7 @@ async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 
   for (const label of TARGET_STAGE_LABELS) byStage[label] = 0;
   let otrasEtapas = 0;
   const byAgencia = {};
+  const byUsuario = {};
 
   for (const { deal } of agencyDeals) {
     const stageLabel = stageMap.stageIdToLabel.get(deal.properties.dealstage);
@@ -385,14 +400,19 @@ async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 
     }
 
     const subAgencia = deal.properties[SUB_AGENCY_PROPERTY];
+    const usuario = deal.properties[USER_PROPERTY];
+
     if (subAgencia) {
       const bucket = (byAgencia[subAgencia] ??= emptyStageBucket());
-      bucket.totalDeals++;
-      if (stageLabel) {
-        bucket.byStage[stageLabel]++;
-      } else {
-        bucket.otrasEtapas++;
+      addToStageBucket(bucket, stageLabel);
+      if (usuario) {
+        bucket.byUsuario ??= {};
+        addToStageBucket((bucket.byUsuario[usuario] ??= emptyStageBucket()), stageLabel);
       }
+    }
+
+    if (usuario) {
+      addToStageBucket((byUsuario[usuario] ??= emptyStageBucket()), stageLabel);
     }
   }
 
@@ -404,6 +424,7 @@ async function getDealStatsByProducerAgency(agencyName, { from, to, dateField = 
     byStage,
     otrasEtapas,
     ...(Object.keys(byAgencia).length > 0 ? { byAgencia } : {}),
+    ...(Object.keys(byUsuario).length > 0 ? { byUsuario } : {}),
     ...(stageMap.missingLabels.length > 0 ? { etapasNoEncontradas: stageMap.missingLabels } : {}),
   };
 }
@@ -434,6 +455,10 @@ async function getDealsListByProducerAgency(agencyName, { from, to, dateField = 
 
     if (deal.properties[SUB_AGENCY_PROPERTY]) {
       record.agencia = deal.properties[SUB_AGENCY_PROPERTY];
+    }
+
+    if (deal.properties[USER_PROPERTY]) {
+      record.usuario = deal.properties[USER_PROPERTY];
     }
 
     if (deal.properties.dealstage === noInteresadoStageId) {
@@ -601,6 +626,7 @@ async function createLead({
   tipoRiesgo,
   details,
   agencia,
+  usuario,
   emitida = false,
   dealstage,
 }) {
@@ -612,6 +638,7 @@ async function createLead({
   const normalizedDetails = normalizeDealDetails(schema, details);
   const companyName = typeof contact.companyName === 'string' ? contact.companyName.trim() : '';
   const isCompany = companyName !== '';
+  const usuarioLimpio = typeof usuario === 'string' ? usuario.trim() : '';
 
   // IDs de etapa de HubSpot son numéricos: se acepta string o number.
   const requestedStageId =
@@ -642,6 +669,7 @@ async function createLead({
         pipeline: pipelineId,
         dealstage: stageId,
         ...(agencia ? { agencia } : {}),
+        ...(usuarioLimpio ? { [USER_PROPERTY]: usuarioLimpio } : {}),
         ...schema.toHubspotProperties(normalizedDetails),
       },
     };
