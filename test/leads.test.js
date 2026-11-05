@@ -903,14 +903,14 @@ test('MOVILIDAD: alta con los 6 campos, sin details obligatorios', async () => {
   assert.strictEqual(result.deal.stage, 'Nuevo');
 });
 
-test('MOVILIDAD: amount y comentarios opcionales, con la misma validacion', async () => {
+test('MOVILIDAD: NO manda precio, aunque venga en el body', async () => {
   setup({
     'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '131' }] },
     'POST /crm/v3/objects/deals': { id: '931' },
   });
 
   await hubspotService.createLead({
-    agency: 'lauty',
+    agency: 'Seguros Movilidad Sancor',
     leadSource: 'AlianzasExternas',
     contact: MOVILIDAD_CONTACT,
     tipoRiesgo: 'MOVILIDAD',
@@ -918,15 +918,35 @@ test('MOVILIDAD: amount y comentarios opcionales, con la misma validacion', asyn
   });
 
   const [deal] = callsTo('POST', '/crm/v3/objects/deals');
-  assert.strictEqual(deal.body.properties.amount, '85000');
+  assert.strictEqual(deal.body.properties.amount, undefined, 'el precio no se manda a HubSpot');
   assert.strictEqual(deal.body.properties.comentarios, 'Monopatin electrico');
 
-  // El amount ambiguo se rechaza igual que en HOGAR.
-  const errors = validateLeadPayload({
-    contact: MOVILIDAD_CONTACT,
-    deal: { tipoRiesgo: 'MOVILIDAD', details: { amount: '85.000' } },
+  // Y si mandan un amount, no se rechaza: simplemente se ignora.
+  assert.deepStrictEqual(
+    validateLeadPayload({
+      contact: MOVILIDAD_CONTACT,
+      deal: { tipoRiesgo: 'MOVILIDAD', details: { amount: '85.000' } },
+    }),
+    []
+  );
+});
+
+test('HOGAR sigue mandando amount (no lo toco el cambio de MOVILIDAD)', async () => {
+  setup({
+    'POST /crm/v3/objects/contacts/batch/upsert': { results: [{ id: '132' }] },
+    'POST /crm/v3/objects/deals': { id: '932' },
   });
-  assert.ok(errors.some((e) => e.startsWith('deal.details.amount')), JSON.stringify(errors));
+
+  await hubspotService.createLead({
+    agency: 'Foxia',
+    leadSource: 'AlianzasExternas',
+    contact: HOGAR_CONTACT,
+    tipoRiesgo: 'HOGAR',
+    details: HOGAR_DETAILS,
+  });
+
+  const [deal] = callsTo('POST', '/crm/v3/objects/deals');
+  assert.strictEqual(deal.body.properties.amount, '150000');
 });
 
 test('MOVILIDAD: aparece en los tipos de riesgo soportados', () => {

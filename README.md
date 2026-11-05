@@ -63,7 +63,7 @@ Ver `services/leadSchemas.js` para agregar un nuevo `tipoRiesgo` además de `AUT
 
 **`AUTO`** — `deal.details`: `marca`, `modelo`, `version`, `anio`, `numeroMotor`, `numeroChasis`, `es0km` (obligatorios); `patente`, `esPrendado` (opcionales).
 
-**`MOVILIDAD`** (Seguros movilidad) — `deal.details`: ninguno obligatorio. `amount` y `comentarios` opcionales. Los datos del lead (nombre, apellido, teléfono, mail, código postal) van todos en `contact`. La factura de compra se manda como adjunto, por `POST /leads/with-attachment`.
+**`MOVILIDAD`** (Seguros movilidad) — `deal.details`: ninguno obligatorio, sólo `comentarios` opcional. **No manda precio**: este riesgo no escribe `amount` en HubSpot, y si llega en el body se ignora. Los datos del lead (nombre, apellido, teléfono, mail, código postal) van todos en `contact`. La factura de compra se manda como adjunto, por `POST /leads/with-attachment`.
 
 **`HOGAR`** — `deal.details`: `tipoHogar`, `ambientes` (obligatorios); `amount`, `comentarios` (opcionales). Acepta además los nombres internos de HubSpot como alias (`tipo_hogar`, `ambientes_hogar`, `comments`), porque el form de esa alianza los manda así.
 

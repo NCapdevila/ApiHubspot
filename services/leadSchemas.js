@@ -107,30 +107,18 @@ const DEAL_SCHEMAS = {
   // del lead (nombre, teléfono, mail, código postal) van todos en "contact".
   // La factura de compra se adjunta aparte, no es una propiedad del deal.
   MOVILIDAD: {
+    // No se manda "amount": el precio no viaja en este riesgo. Si llega en el
+    // body se ignora, igual que cualquier otro campo de más en "details".
     normalizeDetails: (details = {}) => ({
-      amount: details.amount,
       comentarios: details.comentarios ?? details.comments,
     }),
 
     requiredFields: [],
 
-    validateDetails: (details) => {
-      if (!parseAmount(details.amount).ok) {
-        return [
-          'deal.details.amount debe ser un número sin separador de miles ni símbolo de moneda (ej. 150000 o 150000.50)',
-        ];
-      }
-      return [];
-    },
-
-    toHubspotProperties: (details) => {
-      const amount = parseAmount(details.amount).value;
-      return {
-        tipo_riesgo: 'MOVILIDAD',
-        ...(amount !== null ? { amount } : {}),
-        ...(details.comentarios ? { comentarios: details.comentarios } : {}),
-      };
-    },
+    toHubspotProperties: (details) => ({
+      tipo_riesgo: 'MOVILIDAD',
+      ...(details.comentarios ? { comentarios: details.comentarios } : {}),
+    }),
   },
 
   // VIDA:  { requiredFields: [...], toHubspotProperties: (details) => ({...}) },
